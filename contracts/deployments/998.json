@@ -16,6 +16,14 @@
   "deployer": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
   "deployedAt": 1792629161,
   "note": "Written by DeploySeason0 (registry) + addWallet via cast on-chain (forge simulation has no HyperCore precompiles). A zero market means that wallet was not listed.",
+  "builder": {
+    "address": "0x0000000000000000000000000000000000000000",
+    "feeBps": 5,
+    "f": 50,
+    "maxFeeRate": "0.05%",
+    "hyperliquidChain": "Testnet",
+    "note": "Placeholder. Season 0 does not sign or submit orders. f is tenths of a basis point: 50 = 5 bps = 0.05% = maxFeeRate. Replace address before any approveBuilderFee. A builder needs at least 100 USDC of perps account value. Perp builder fees are capped at 0.1%."
+  },
   "wallets": [
     {
       "ticker": "MACHI",

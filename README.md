@@ -2,9 +2,9 @@
 
 Every Hyperliquid wallet is a memecoin. TAIL it or FADE it.
 
-Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. There is no copy-trading.
+Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. Copy the whale is a link to Hyperliquid, not an order from this site.
 
-The owner is UK-based. This milestone has no USDC, no transferable token, and no function that turns points into money.
+The owner is UK-based. This milestone has no USDC, no transferable token, and no function that turns points into money. Copy the whale only opens the Hyperliquid trade page. It does not send an order.
 
 ## Mechanic
 
@@ -77,6 +77,27 @@ cd web && python3 -m http.server 8080
 Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
 
 A missing file, a rejected connection, or no injected wallet leaves the simulated demo running.
+
+### Copy the whale
+
+Each card and each wallet page has **Copy the whale**. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a Season 0 play-point order. A flat book says there is nothing to copy.
+
+The button does not sign a HyperCore action. This page is a static file with no bundler. An order signature is the L1 phantom-agent EIP-712 (an msgpack hash of the action, domain `Exchange`, chain id 1337), not the EVM transaction path in `chain.js`. A mistaken signer can hit mainnet. Season 0 must not submit orders, and the builder address in config is the zero address.
+
+After confirm, the page opens the coin's trade page in a new tab. A `testnetOnly` whale uses `https://app.hyperliquid-testnet.xyz/trade/{coin}`. Every other whale uses `https://app.hyperliquid.xyz/trade/{coin}`, which is where that coin exists. The coin is limited to letters, digits, and `:._-`. A HIP-3 name such as `xyz:NVDA` keeps the colon. The link cannot set size or leverage. The confirm screen is what the user copies onto Hyperliquid's ticket. No builder fee is charged.
+
+Next step, testnet first. The user signs `approveBuilderFee` once, with the main wallet rather than an API agent. The action is `hyperliquidChain: "Testnet"`, `maxFeeRate` from config (`"0.05%"`), the builder address, and a nonce, posted to `https://api.hyperliquid-testnet.xyz/exchange`. Later orders add `builder: {"b": "<address>", "f": 50}`. `f` is tenths of a basis point, so 50 is 5 bps (0.05%), and it must be within the approved max. Hyperliquid caps perp builder fees at 0.1% (f = 100) and requires the builder to hold at least 100 USDC of perps account value. Replace the placeholder address before any of that is wired. Talk to mainnet only after the legal review in Monetisation. The approved max is the info request `{"type":"maxBuilderFee","user":"0x…","builder":"0x…"}`.
+
+## Monetisation
+
+Season 0 earns nothing. Points are play money, the builder address is a placeholder, and this site does not sell a listing or a sponsorship.
+
+1. **Pot fees (main).** `FEE_BPS` is 50, so 0.5% of a filled buy stays in `protocolFees`. There is no withdraw function in Season 0.
+2. **Builder-code copy trades.** A user who copies a whale can approve a max builder fee once (`approveBuilderFee`). Orders sent for them can then carry `builder: {b, f}`, with `f` in tenths of a basis point (`f` 50 = 5 bps). Config is the `builder` object in `contracts/deployments/998.json`: placeholder address `0x0000…0000`, `feeBps` 5, `f` 50, `maxFeeRate` `"0.05%"`, `hyperliquidChain` `"Testnet"`. The button above does not attach that fee yet.
+3. **Paid or featured listings.** A later season could charge to list or pin a wallet. Season 0 listings are free and curated.
+4. **Sponsorships.** A ticker, a card, or the share image could carry a sponsor. None are sold in Season 0.
+
+Real money needs legal advice before any of those lines is switched on. The owner is in the UK. A paid product has to geoblock the UK and the US, and it is not offered to UK or US persons.
 
 ## Keeper
 

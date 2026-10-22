@@ -38,6 +38,11 @@ contract SeedTest is Season0Test {
         assertEq(vm.parseJsonAddress(raw, ".wallets[11].whale"), 0x6dD538C00055D7EA6d451B97a94E463E8Ce89519);
         assertEq(vm.parseJsonAddress(raw, ".wallets[11].market"), 0x759780b5945bB0036b6B403955182B9562Ea6a66);
         assertTrue(vm.parseJsonBool(raw, ".wallets[11].testnetOnly"));
+        assertEq(vm.parseJsonAddress(raw, ".builder.address"), address(0));
+        assertEq(vm.parseJsonUint(raw, ".builder.feeBps"), 5);
+        assertEq(vm.parseJsonUint(raw, ".builder.f"), 50);
+        assertEq(vm.parseJsonString(raw, ".builder.maxFeeRate"), "0.05%");
+        assertEq(vm.parseJsonString(raw, ".builder.hyperliquidChain"), "Testnet");
         for (uint256 i; i < 12; ++i) {
             string memory market = vm.parseJsonString(raw, string.concat(".wallets[", vm.toString(i), "].market"));
             assertTrue(bytes(market).length == 42);
