@@ -9,8 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&family=Bungee&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#06060b;--panel:#0e0e18;--panel2:#141424;--line:#24243a;--txt:#e9e9ff;--mut:#8a8aa8;--tail:#39ff88;--fade:#ff2e88;--y:#ffe14d;--c:#3ee0ff}
-*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--txt);font-family:'Space Grotesk',system-ui,sans-serif}
-body{background-image:radial-gradient(circle at 15% -10%,#39ff8822,transparent 40%),radial-gradient(circle at 90% 0%,#ff2e8822,transparent 40%);min-height:100vh}
+*{box-sizing:border-box}html,body{margin:0;color:var(--txt);font-family:'Space Grotesk',system-ui,sans-serif}
+html{background-color:var(--bg);background-image:radial-gradient(circle at 15% -10%,#39ff8822,transparent 40%),radial-gradient(circle at 90% 0%,#ff2e8822,transparent 40%);min-height:100%}
+body{background:transparent;min-height:100vh}
+#bgwaves{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
 a{color:inherit;text-decoration:none}
 .mono{font-family:'JetBrains Mono',monospace}
 .poc{background:repeating-linear-gradient(45deg,#ffe14d,#ffe14d 14px,#111 14px,#111 28px);padding:3px 0}
@@ -39,7 +41,7 @@ main{max-width:1260px;margin:0 auto;padding:18px}
 .clock{text-align:right}.clock .big{font:700 40px 'JetBrains Mono';color:var(--y);text-shadow:0 0 16px #ffe14d55}
 .clock small{color:var(--mut);font-size:12px;display:block}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:16px;padding:14px;position:relative;transition:.15s;cursor:pointer;overflow:hidden}
+.card{background:linear-gradient(180deg,rgba(20,20,36,.80),rgba(14,14,24,.74));border:1px solid var(--line);border-radius:16px;padding:14px;position:relative;transition:.15s;cursor:pointer;overflow:hidden}
 .card:hover{transform:translateY(-2px);border-color:#3ee0ff88;box-shadow:0 8px 30px #3ee0ff22}
 .card.flashT{animation:flT 1.2s}.card.flashF{animation:flF 1.2s}
 @keyframes flT{0%{box-shadow:0 0 0 2px var(--tail),0 0 40px var(--tail)}}@keyframes flF{0%{box-shadow:0 0 0 2px var(--fade),0 0 40px var(--fade)}}
@@ -61,7 +63,7 @@ main{max-width:1260px;margin:0 auto;padding:18px}
 svg.spark{width:100%;height:46px;display:block;margin-top:8px}
 .sleepov{position:absolute;inset:0;background:#06060bb0;display:grid;place-items:center;font:700 22px 'Bungee';color:var(--mut);pointer-events:none}
 .tick1m{font:700 12px 'JetBrains Mono'}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.panel{background:rgba(14,14,24,.82);border:1px solid var(--line);border-radius:16px;padding:16px}
 .dgrid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
 @media(max-width:900px){.dgrid{grid-template-columns:1fr}}
 table{width:100%;border-collapse:collapse;font:13px 'JetBrains Mono'}th{color:var(--mut);font-weight:400;text-align:left;font-size:11px;text-transform:uppercase;padding:6px 4px;border-bottom:1px solid var(--line)}
@@ -99,6 +101,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 </style>
 </head>
 <body>
+<canvas id="bgwaves" aria-hidden="true"></canvas>
 <div class="poc"><div id="pocBanner">PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.</div></div>
 <div class="tn"><div id="testnetNotice">TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.</div></div>
 <header>
@@ -566,6 +569,66 @@ function renderTicker(){
 }
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0)});
 $('#app').innerHTML='<div class="hero"><div><h1>Loading whales from Hyperliquid…</h1><p>fetching live positions, marks and 24h PnL</p></div></div>';
+// ---------- animated wave background + breaching whale (whalewallet.fun) ----------
+(function(){
+  const cv=document.getElementById('bgwaves');if(!cv)return;const ctx=cv.getContext('2d');
+  const RM=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const TAIL=new Path2D("M 456 494 C 476 450 494 410 492 372 C 430 350 360 300 338 220 C 330 185 332 150 344 132 C 370 156 410 180 458 196 C 506 210 532 236 540 266 C 550 236 580 212 628 196 C 688 178 728 160 754 136 C 766 168 760 226 732 270 C 702 318 636 350 586 372 C 586 410 600 456 614 494 Z");
+  // layers: back→front. rgb, baseline (fraction of H), amplitude, wavenumber, speed, fill alpha, crest glow alpha
+  const L=[{c:'40,70,150',y:.56,a:24,k:.0055,s:.18,al:.16,g:.22},{c:'255,46,136',y:.66,a:20,k:.0075,s:-.26,al:.07,g:.42},
+           {c:'57,255,136',y:.76,a:18,k:.0095,s:.34,al:.06,g:.40},{c:'8,14,38',y:.86,a:16,k:.012,s:-.45,al:.72,g:.16}];
+  let W=0,H=0,dpr=1,t=0,last=0,raf=0,drops=[],ripples=[];
+  const whale={state:'idle',x:0,t0:0,next:performance.now()+4000,layer:2,flip:1};
+  function size(){dpr=Math.min(1.5,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+  const yAt=(l,x)=>H*l.y+Math.sin(x*l.k+t*l.s)*l.a+Math.sin(x*l.k*2.3-t*l.s*1.7+1.3)*l.a*.45;
+  function crest(l){ctx.beginPath();for(let x=-10;x<=W+10;x+=8){const y=yAt(l,x);x<0?ctx.moveTo(x,y):ctx.lineTo(x,y)}}
+  function drawLayer(l){
+    crest(l);ctx.lineTo(W+10,H);ctx.lineTo(-10,H);ctx.closePath();
+    const top=H*l.y-l.a*1.5,gr=ctx.createLinearGradient(0,top,0,H);gr.addColorStop(0,`rgba(${l.c},${l.al})`);gr.addColorStop(1,`rgba(${l.c},${l.al*.35})`);
+    ctx.fillStyle=gr;ctx.fill();
+    crest(l);ctx.strokeStyle=`rgba(${l.c},${l.g*.22})`;ctx.lineWidth=7;ctx.stroke();ctx.strokeStyle=`rgba(${l.c},${l.g})`;ctx.lineWidth=1.4;ctx.stroke();
+  }
+  function splash(x,y,n,up){for(let i=0;i<n;i++){const a=-Math.PI/2+(Math.random()-.5)*1.6;const v=(up?3.2:2.2)+Math.random()*2.6;
+    drops.push({x:x+(Math.random()-.5)*40,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,r:1.5+Math.random()*2.5,c:['255,255,255','57,255,136','255,46,136'][i%3],life:1})}
+    ripples.push({x,y,r:6,life:1})}
+  function drawWhale(now){
+    const l=L[whale.layer];
+    if(whale.state==='idle'){if(now>whale.next){whale.state='up';whale.t0=now;whale.x=W*(.12+Math.random()*.76);whale.flip=Math.random()<.5?-1:1;splash(whale.x,yAt(l,whale.x),16,true)}return}
+    const e=(now-whale.t0)/1000,RISE=1.1,HOLD=1.5,DIVE=1.0;let p,rot;
+    if(e<RISE){const q=e/RISE;p=1-Math.pow(1-q,3);rot=-.25*(1-q)}
+    else if(e<RISE+HOLD){p=1+Math.sin((e-RISE)*3)*.03;rot=Math.sin((e-RISE)*2.2)*.07}
+    else if(e<RISE+HOLD+DIVE){const q=(e-RISE-HOLD)/DIVE;p=1-q*q;rot=.35*q;if(!whale.dived&&q>.75){whale.dived=1;splash(whale.x,yAt(l,whale.x),22,false)}}
+    else{whale.state='idle';whale.dived=0;whale.next=now+15000+Math.random()*15000;return}
+    const h=Math.max(70,Math.min(150,H*.17)),s=h/362,cy=yAt(l,whale.x);
+    ctx.save();
+    // clip to above this layer's crest so the tail emerges from the water
+    ctx.beginPath();ctx.moveTo(-10,-10);ctx.lineTo(W+10,-10);for(let x=W+10;x>=-10;x-=8)ctx.lineTo(x,yAt(l,x)+3);ctx.closePath();ctx.clip();
+    ctx.translate(whale.x,cy+(1-p)*h*1.1+6);ctx.rotate(rot*whale.flip);ctx.scale(s*whale.flip,s);ctx.translate(-541,-494);
+    ctx.lineJoin='round';ctx.strokeStyle='#fff';ctx.lineWidth=70;ctx.stroke(TAIL);
+    ctx.strokeStyle='#000';ctx.lineWidth=22;ctx.stroke(TAIL);ctx.fillStyle='#FF2E88';ctx.fill(TAIL);ctx.stroke(TAIL);
+    ctx.restore();
+  }
+  function drawFx(){
+    for(const r of ripples){r.r+=1.6;r.life-=.025;ctx.strokeStyle=`rgba(255,255,255,${Math.max(0,r.life)*.5})`;ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(r.x,r.y+4,r.r*2.2,r.r*.45,0,0,Math.PI*2);ctx.stroke()}
+    ripples=ripples.filter(r=>r.life>0);
+    for(const d of drops){d.vy+=.16;d.x+=d.vx;d.y+=d.vy;d.life-=.018;ctx.fillStyle=`rgba(${d.c},${Math.max(0,d.life)*.85})`;ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);ctx.fill()}
+    drops=drops.filter(d=>d.life>0&&d.y<H);
+  }
+  function frame(now){
+    raf=requestAnimationFrame(frame);
+    if(now-last<33)return; // ~30fps cap
+    const dt=Math.min(.1,(now-last)/1000);last=now;t+=dt;
+    ctx.clearRect(0,0,W,H);
+    for(let i=0;i<L.length;i++){drawLayer(L[i]);if(i===whale.layer)drawWhale(now)}
+    drawFx();
+  }
+  function still(){t=0;ctx.clearRect(0,0,W,H);L.forEach(drawLayer)}
+  size();addEventListener('resize',()=>{size();if(RM)still()});
+  if(RM){still();return}
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(raf);raf=0}else if(!raf){last=performance.now();raf=requestAnimationFrame(frame)}});
+  raf=requestAnimationFrame(frame);
+  window.__breachNow=()=>{whale.state='idle';whale.next=0};
+})();
 boot().catch(e=>{console.warn(e);S.mode='snapshot';render()});
 </script>
 </body>
