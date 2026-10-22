@@ -34,6 +34,8 @@ CHAIN_ID = "998"
 REGISTRY = "0x9A00D44E7564004f8557bf7a780793c546ccd4a5"
 SITE = "whalewallet.fun"
 WHALE_NOTIONAL = "{}"
+# HIP-3 dexes read besides the default dex (stocks, metals, oil live on xyz). Each one adds a read per whale.
+PERP_DEXES = "xyz"
 # none: no URL and no bare domain (plain post, $0.015). daily: URL only on the recap ($0.20). all: URL on every post.
 LINK_MODE = "none"
 # Plain $0.015, any URL $0.20. 14 plain posts are $0.21, under this cap. One URL post is $0.20.

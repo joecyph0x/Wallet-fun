@@ -16,6 +16,7 @@ import { authorizationHeader, randomNonce, TWEET_URL } from "./oauth.js";
 import { applyBackoff, backoffSeconds, emptyRate, formatMilli, recordPost, usdToMilli, type RateState } from "./rate.js";
 import { decideRun } from "./run.js";
 import { PLAIN_MILLI, URL_MILLI, type LinkMode } from "./templates.js";
+import { mergeBooks, parseDexes, queriesFor, vaultChildren } from "./sources.js";
 import { WHALES } from "./whales.js";
 
 export interface Env {
@@ -35,6 +36,8 @@ export interface Env {
   WHALE_NOTIONAL?: string;
   LINK_MODE?: string;
   MAX_DAILY_SPEND_USD?: string;
+  /** HIP-3 dexes read besides the default dex, comma separated. Default "xyz". */
+  PERP_DEXES?: string;
   X_API_KEY?: string;
   X_API_SECRET?: string;
   X_ACCESS_TOKEN?: string;
@@ -79,10 +82,7 @@ async function run(env: Env): Promise<void> {
   const snaps = loadSnaps(snapFile);
   const bot = loadBot(botFile, now);
 
-  const states = await Promise.all(
-    WHALES.map((w) => info(cfg.infoUrl, { type: "clearinghouseState", user: w.whale })),
-  );
-  const parsed = WHALES.map((w, i) => ({ whale: w, positions: positionsFromClearinghouse(states[i]) }));
+  const parsed = await loadBooks(cfg.infoUrl, cfg.dexes);
 
   const realised = await loadRealised(cfg.infoUrl, parsed, snaps, now);
   const { active, odds } = await loadChain(cfg, parsed.map((p) => p.whale));
@@ -267,6 +267,7 @@ function readConfig(env: Env) {
     maxSpendMilli: spendMilli(env.MAX_DAILY_SPEND_USD),
     notionalByTicker: notionalOverrides(env.WHALE_NOTIONAL),
     registry: env.REGISTRY || "0x9A00D44E7564004f8557bf7a780793c546ccd4a5",
+    dexes: parseDexes(env.PERP_DEXES),
   };
 }
 
@@ -298,35 +299,75 @@ function notionalOverrides(raw: string | undefined): Record<string, number> {
   }
 }
 
+type Book = { whale: (typeof WHALES)[number]; accounts: string[]; positions: Pos[] | null };
+
+/**
+ * One book per whale: the default dex plus each HIP-3 dex in `dexes`.
+ * A vault parent is replaced by its child vaults (HIP-3 dexes are skipped for those).
+ */
+async function loadBooks(infoUrl: string, dexes: readonly string[]): Promise<Book[]> {
+  const accounts = await Promise.all(
+    WHALES.map(async (w) => {
+      if (!w.vault) return [w.whale];
+      const kids = vaultChildren(await info(infoUrl, { type: "vaultDetails", vaultAddress: w.whale }));
+      return kids.length ? kids : [w.whale];
+    }),
+  );
+  return Promise.all(
+    WHALES.map(async (w, i) => {
+      const qs = queriesFor(accounts[i]!, w.vault ? [] : dexes);
+      const books = await Promise.all(
+        qs.map(async (q) =>
+          positionsFromClearinghouse(
+            await info(infoUrl, q.dex ? { type: "clearinghouseState", user: q.user, dex: q.dex } : { type: "clearinghouseState", user: q.user }),
+          ),
+        ),
+      );
+      return { whale: w, accounts: accounts[i]!, positions: mergeBooks(books) };
+    }),
+  );
+}
+
+/** Fill reads for closed coins. Capped so a run stays under the Workers subrequest limit. */
+const MAX_FILL_READS = 8;
+
 async function loadRealised(
   infoUrl: string,
-  parsed: { whale: (typeof WHALES)[number]; positions: Pos[] | null }[],
+  parsed: Book[],
   snaps: Record<string, Snap>,
   now: number,
 ): Promise<Record<string, Record<string, number>>> {
-  const jobs: { ticker: string; user: string; since: number; coins: string[] }[] = [];
+  const jobs: { ticker: string; users: string[]; since: number; coins: string[] }[] = [];
   for (const row of parsed) {
     if (!row.positions) continue;
     const prev = snaps[row.whale.ticker];
     if (!prev) continue;
     const still = new Set(row.positions.map((p) => p.coin));
     const gone = prev.positions.map((p) => p.coin).filter((c) => !still.has(c));
-    if (gone.length) jobs.push({ ticker: row.whale.ticker, user: row.whale.whale, since: prev.at, coins: gone });
+    if (gone.length) jobs.push({ ticker: row.whale.ticker, users: row.accounts, since: prev.at, coins: gone });
   }
   const out: Record<string, Record<string, number>> = {};
+  let budget = MAX_FILL_READS;
+  const runnable = jobs.filter((job) => {
+    if (job.users.length > budget) return false;
+    budget -= job.users.length;
+    return true;
+  });
   await Promise.all(
-    jobs.map(async (job) => {
-      const fills = await info(infoUrl, {
-        type: "userFillsByTime",
-        user: job.user,
-        startTime: job.since,
-        endTime: now,
-        aggregateByTime: true,
-      });
+    runnable.map(async (job) => {
+      const all = await Promise.all(
+        job.users.map((user) =>
+          info(infoUrl, { type: "userFillsByTime", user, startTime: job.since, endTime: now, aggregateByTime: true }),
+        ),
+      );
       const bag: Record<string, number> = {};
       for (const coin of job.coins) {
-        const pnl = sumClosedPnl(fills, coin, job.since);
-        if (pnl !== null) bag[coin] = pnl;
+        let sum: number | null = null;
+        for (const fills of all) {
+          const pnl = sumClosedPnl(fills, coin, job.since);
+          if (pnl !== null) sum = (sum ?? 0) + pnl;
+        }
+        if (sum !== null) bag[coin] = sum;
       }
       out[job.ticker] = bag;
     }),

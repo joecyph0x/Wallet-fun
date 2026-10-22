@@ -7,6 +7,7 @@
 
 import type { Side, WhaleEvent } from "./events.js";
 import { topEvents } from "./rate.js";
+import { displayCoin } from "./sources.js";
 
 export type LinkMode = "none" | "daily" | "all";
 
@@ -133,7 +134,7 @@ function eventBody(events: readonly WhaleEvent[], seed: number): string {
 
 function single(e: WhaleEvent, n: number): string {
   const ticker = safeLabel(e.ticker).replace(/\s+/g, "") || "WHALE";
-  const coin = safeLabel(e.coin) || "a market";
+  const coin = safeLabel(displayCoin(e.coin)) || "a market";
   const usd = formatUsd(e.notional);
   const at = e.entry > 0 ? ` at ${formatPx(e.entry)}` : "";
   const pct = Math.round(e.addFrac * 100).toString();
@@ -182,7 +183,7 @@ function single(e: WhaleEvent, n: number): string {
 }
 
 function short(e: WhaleEvent): string {
-  const coin = safeLabel(e.coin) || "a market";
+  const coin = safeLabel(displayCoin(e.coin)) || "a market";
   if (e.kind === "open") return `opened a ${formatUsd(e.notional)} ${coin} ${e.side}`;
   if (e.kind === "close") return `closed ${coin} ${e.side} ${formatUsd(e.pnl, true)}`;
   if (e.kind === "flip") return `flipped ${coin} ${e.prevSide ?? "flat"} → ${e.side}`;
@@ -195,7 +196,7 @@ function recapBody(input: ComposeInput, ticker: string): string {
   const b = input.biggest;
   if (!b || !(b.notional > 0)) return `📒 Daybook. The board is flat. ${n} whales tracked.`;
   const who = safeLabel(b.ticker).replace(/\s+/g, "") || ticker;
-  const coin = safeLabel(b.coin) || "a market";
+  const coin = safeLabel(displayCoin(b.coin)) || "a market";
   return `📒 Daybook. ${who} still on a ${formatUsd(b.notional)} ${coin} ${b.side}. ${n} whales tracked.`;
 }
 
