@@ -3,7 +3,6 @@
 name = "whalewallet-keeper"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
-compatibility_flags = ["nodejs_compat"]
 
 [triggers]
 crons = ["* * * * *"]

@@ -161,6 +161,9 @@ async function sendSettle(w: WalletConfig, args: readonly [{ memberIndex: number
       functionName: "settle",
       args,
       nonce,
+      // A DEMO settle with an open ETH position is about 403k. The worker used to cap at
+      // 400k and those txs ran out of gas. Skip estimateGas and leave the same headroom.
+      gas: 1_000_000n,
     });
   } catch (err) {
     // The node rejected the send, so that nonce was not consumed.

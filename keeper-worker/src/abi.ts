@@ -17,6 +17,9 @@ export const settleAbi = [
   },
 ] as const;
 
+/** Settled(address,address,int256,int256,int256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint64,bool). Caller is topic 2. */
+export const SETTLED_TOPIC = "0xd580737e1f67261d52cb58caaf1d232c13212d6e514b75a50aa997a9f0236ef2";
+
 export const SEL = {
   whaleCount: "0x3ed96f41",
   whales: "0xeb1d2d40",
