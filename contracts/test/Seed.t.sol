@@ -24,6 +24,23 @@ contract SeedTest is Season0Test {
         deploy.assertTestnet();
     }
 
+    function test_deploymentFileHasTheTestnetAddresses() public view {
+        string memory raw = vm.readFile("deployments/998.json");
+        assertEq(vm.parseJsonUint(raw, ".chainId"), 998);
+        assertEq(vm.parseJsonAddress(raw, ".registry"), 0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9);
+        assertEq(vm.parseJsonAddress(raw, ".implementation"), 0xa1e336F6616C8c753774e40C1aC3e3851761A4E9);
+        assertEq(vm.parseJsonAddress(raw, ".deployer"), 0xFfFC0719380a4d500C3373A26BE1f273bD7C1468);
+        assertEq(vm.parseJsonString(raw, ".wallets[0].ticker"), "MACHI");
+        assertEq(vm.parseJsonAddress(raw, ".wallets[0].market"), 0xeFb412210a2162AFa937E59f81dd5B3308308b67);
+        assertEq(vm.parseJsonString(raw, ".wallets[10].ticker"), "WYNN");
+        assertEq(vm.parseJsonAddress(raw, ".wallets[10].market"), 0x6129B8f52f5c882592830c67B334b310a9E44784);
+        for (uint256 i; i < 11; ++i) {
+            string memory market = vm.parseJsonString(raw, string.concat(".wallets[", vm.toString(i), "].market"));
+            assertTrue(bytes(market).length == 42);
+            assertTrue(keccak256(bytes(market)) != keccak256(bytes("0x0000000000000000000000000000000000000000")));
+        }
+    }
+
     function test_seedFileMatchesThePocWallets() public view {
         string memory raw = vm.readFile("script/whales.json");
         assertEq(vm.parseJsonUint(raw, ".count"), 11);

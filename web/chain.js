@@ -178,7 +178,13 @@
     if (banner) {
       banner.textContent = live()
         ? "SEASON 0 TESTNET — play points on HyperEVM chain 998. Sell returns points to your balance at the next settlement. No cash value."
-        : "PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.";
+        : "PROOF OF CONCEPT — play points, not money. No wallet connected: pots stay simulated in this browser.";
+    }
+    const notice = document.getElementById("testnetNotice");
+    if (notice) {
+      notice.textContent = live()
+        ? "TESTNET — you are on the HyperEVM testnet pots. The cards still show Hyperliquid mainnet positions. These whales have no open testnet positions, so settlement PnL is 0."
+        : "TESTNET — these cards show Hyperliquid mainnet positions. Season 0 settles on HyperEVM testnet, where these whales have no open positions, so on-chain PnL is 0. Without a connected wallet the pots on this page are still the browser simulation.";
     }
   }
 

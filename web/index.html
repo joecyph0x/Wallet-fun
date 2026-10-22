@@ -15,6 +15,8 @@ a{color:inherit;text-decoration:none}
 .mono{font-family:'JetBrains Mono',monospace}
 .poc{background:repeating-linear-gradient(45deg,#ffe14d,#ffe14d 14px,#111 14px,#111 28px);padding:3px 0}
 .poc div{background:#111;color:var(--y);text-align:center;font:700 12px 'JetBrains Mono',monospace;padding:5px 8px;letter-spacing:.04em}
+.tn{background:#14120a;border-bottom:1px solid #5c4a16}
+.tn div{color:#ffe14d;text-align:center;font:600 12px 'JetBrains Mono',monospace;padding:8px 16px;letter-spacing:.01em;line-height:1.45}
 header{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#06060bee;backdrop-filter:blur(8px);z-index:20;flex-wrap:wrap}
 .logo{font-family:'Bungee',cursive;font-size:18px;letter-spacing:.01em;background:linear-gradient(90deg,var(--tail),var(--c),var(--fade));-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 0 24px #39ff8833}
 nav{display:flex;gap:6px;flex-wrap:wrap}nav a{padding:7px 12px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--mut)}nav a.on,nav a:hover{color:var(--txt);border-color:var(--c);box-shadow:0 0 12px #3ee0ff44}
@@ -87,11 +89,12 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 .kp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:600px){.kp{grid-template-columns:repeat(2,1fr)}}
 .kp>div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
 footer{color:var(--mut);font-size:12px;text-align:center;padding:30px 18px 50px;line-height:1.6}
-@media(max-width:600px){nav{flex-wrap:nowrap;overflow-x:auto;width:100%}nav a{white-space:nowrap;padding:6px 10px}.pill{font-size:11px;padding:5px 8px}.poc div{font-size:10px}header{padding:10px 12px;gap:8px}.logo{font-size:15px}main{padding:12px}.clock .big{font-size:30px}.hdr-r{margin-left:0;width:100%}.hero{align-items:flex-start}.clock{text-align:left}}
+@media(max-width:600px){nav{flex-wrap:nowrap;overflow-x:auto;width:100%}nav a{white-space:nowrap;padding:6px 10px}.pill{font-size:11px;padding:5px 8px}.poc div,.tn div{font-size:10px}header{padding:10px 12px;gap:8px}.logo{font-size:15px}main{padding:12px}.clock .big{font-size:30px}.hdr-r{margin-left:0;width:100%}.hero{align-items:flex-start}.clock{text-align:left}}
 </style>
 </head>
 <body>
-<div class="poc"><div>PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.</div></div>
+<div class="poc"><div id="pocBanner">PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.</div></div>
+<div class="tn"><div id="testnetNotice">TESTNET — these cards show Hyperliquid mainnet positions. Season 0 settles on HyperEVM testnet, where these whales have no open positions, so on-chain PnL is 0. Without a connected wallet the pots on this page are still the browser simulation.</div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
   <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
@@ -424,7 +427,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>3. r = PnL ÷ whale equity, capped at ±25% per check. The pot moved = r × min(TAIL pot, FADE pot, 25% × whale equity). Winners' token NAV goes up, losers' down. Zero-sum between sides.</p>
 <p>4. Buys/sells queue and fill at the <b>next</b> settlement price, so you can't front-run a candle you already saw.</p>
 <p>5. Wallet owners can opt out by signing a message. Sleeping wallets (no positions) are frozen.</p>
-<p class="note">With no wallet, or until deployments.json has a registry address, pots and points stay in this browser. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. Whale positions on the cards stay the Hyperliquid mainnet info API. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
+<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions. The listed whales are flat on testnet, so settlement PnL there is 0. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
 // ---------- router ----------
 function route(){return(location.hash||'#/').slice(1).split('?')[0]}
 function render(){
@@ -442,7 +445,7 @@ window.softRender=softRender;
 function tickTextOnly(){const left=S.nextSettle-Date.now();const s=Math.max(0,Math.ceil(left/1000));const t=S.nextSettle?`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:'--:--';document.querySelectorAll('.cd').forEach(e=>e.textContent=t)}
 function renderTicker(){
   const ev=S.events.slice(0,30);if(!ev.length)return;
-  const items=ev.map(e=>`<span class="tk"><span class="xb">𝕏 @walletfun_bot</span>${esc(e.txt)} <span class="zz">${ago(e.t)}</span></span>`).join('');
+  const items=ev.map(e=>`<span class="tk"><span class="xb">𝕏 @whalewalletbot</span>${esc(e.txt)} <span class="zz">${ago(e.t)}</span></span>`).join('');
   $('#track').innerHTML=items+items;
 }
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0)});

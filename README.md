@@ -66,7 +66,9 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 ## Front-end
 
-`web/index.html` keeps the Season 0 look. Whale equity, positions, and marks still come from `api.hyperliquid.xyz`. Pots and points stay in `localStorage` until a wallet is connected and `web/deployments.json` has a non-zero registry. That file is a symlink to `contracts/deployments/998.json`.
+`web/index.html` keeps the Season 0 look. Whale equity, positions, and marks still come from mainnet `api.hyperliquid.xyz`. The eleven listed whales are flat on HyperEVM testnet, so a settlement there has PnL 0 while the cards still show mainnet positions. A testnet bar under the proof-of-concept banner says that on every page.
+
+Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry and all 11 market addresses. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
 
 ```bash
 cd web && python3 -m http.server 8080
@@ -74,11 +76,13 @@ cd web && python3 -m http.server 8080
 
 Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
 
-A zero registry, a missing file, a rejected connection, or no injected wallet leaves the simulated demo running. The public page does not need a deploy.
+A missing file, a rejected connection, or no injected wallet leaves the simulated demo running.
 
 ## Keeper
 
 `keeper/` reads `contracts/deployments/998.json`. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is the whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
+
+Settles in one tick run one after another, and a new tick waits if the previous one is still going. The keeper keeps a local nonce cursor: it reads the node's pending nonce only when the cursor is empty, then increments locally. The testnet RPC's pending count lags a transaction that was just submitted, and re-reading it made the next `settle` reuse a nonce (`nonce too low`). A nonce error clears the cursor and retries that settle once. Any other reject puts the unused nonce back. `npm test` covers the cursor.
 
 ```bash
 cd keeper
@@ -90,9 +94,13 @@ KEEPER_PRIVATE_KEY=0x... npm run settle                # broadcasts. Never commi
 
 ## Deploy
 
-Testnet only. The script reverts unless `block.chainid` is 998. It deploys the registry, lists every wallet in `contracts/script/whales.json`, and with `WRITE_DEPLOYMENT=1` overwrites `contracts/deployments/998.json`. A wallet that fails `coreUserExists` is recorded with `listError: "NoCoreUser"` and a zero market, and the rest still list. `REGISTRY=0x...` skips the create and only lists. The script is not part of `forge test` or CI.
+Testnet only. `DeploySeason0` reverts unless `block.chainid` is 998. It deploys the registry and, with `WRITE_DEPLOYMENT=1`, patches the `registry`, `implementation`, and `deployer` fields in `contracts/deployments/998.json`. It leaves the `wallets` array alone. `REGISTRY=0x...` skips the create. The script is not executed by `forge test` or CI.
 
-HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit was `0x2dc6c0`, which is that cap. The registry constructor also creates the market implementation. That runtime is 17,409 bytes, so its code deposit alone is 200 × 17,409 = 3,481,800 gas, which `test_registryCreationNeedsABigBlock` locks. The deploy transaction has to land in a big block (30,000,000 gas). The init code is about 25KB, under the 49,152-byte init-code limit, and the market runtime is under the 24,576-byte contract limit. Listing clones are small.
+The script does not list wallets. Forge simulates it on a local EVM, and that simulator has no HyperCore precompiles, so a `coreUserExists` check inside the script is false for every address (`NoCoreUser`) and `addWallet` is never broadcast. Listing is `contracts/script/list_whales.py`. That sends `addWallet` with `cast` on chain 998, one transaction at a time, waiting for the receipt. On chain the precompile returns the real bool.
+
+HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit was `0x2dc6c0`, which is that cap. The registry constructor also creates the market implementation. That runtime is 17,409 bytes, so its code deposit alone is 200 × 17,409 = 3,481,800 gas, which `test_registryCreationNeedsABigBlock` locks. The deploy transaction has to land in a big block (30,000,000 gas). Foundry also applies that 3,000,000 cap during simulation, so the script command needs `--disable-block-gas-limit` or the constructor runs out of gas before anything is broadcast. The init code is about 25KB, under the 49,152-byte init-code limit, and the market runtime is under the 24,576-byte contract limit. Each listing is about 470k gas and fits in a small block.
+
+Season 0 is deployed on HyperEVM testnet. Registry `0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9`, implementation `0xa1e336F6616C8c753774e40C1aC3e3851761A4E9`, deployer `0xFfFC0719380a4d500C3373A26BE1f273bD7C1468`. Explorer: <https://testnet.purrsec.com>. The eleven market addresses are in `contracts/deployments/998.json`.
 
 1. Create a throwaway key. Do not commit it and do not print it.
 
@@ -116,20 +124,39 @@ HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit wa
    print(Exchange(wallet, constants.TESTNET_API_URL).use_big_blocks(True))
    ```
 
-   That submits `{"type":"evmUserModify","usingBigBlocks":true}`. Switch it back off after the deploy if you want the keeper on small blocks. `bigBlockGasPrice` is not implemented on `rpc.hyperliquid-testnet.xyz`; `eth_gasPrice` was `0x5f5e100` (0.1 gwei) when this was checked.
+   That submits `{"type":"evmUserModify","usingBigBlocks":true}`. `bigBlockGasPrice` is not implemented on `rpc.hyperliquid-testnet.xyz`; `eth_gasPrice` was `0x5f5e100` (0.1 gwei) when this was checked.
 
-5. Deploy and write the address book.
+5. Deploy the registry. The flag is required: without `--disable-block-gas-limit` the simulation hits the small-block cap and the script never broadcasts.
 
    ```bash
    export DEPLOYER_PRIVATE_KEY="$(python3 -c 'import json; d=json.load(open("/tmp/ww-secret/key.json")); row=d["data"][0] if isinstance(d, dict) else d[0]; print(row["private_key"])')"
    cd contracts
    WRITE_DEPLOYMENT=1 forge script script/DeploySeason0.s.sol \
-     --rpc-url hyperevm_testnet --broadcast --slow
+     --rpc-url hyperevm_testnet --broadcast --slow --disable-block-gas-limit
    ```
 
-6. Run the keeper with the same key for a few minutes and confirm `Settled` receipts. The explorer linked in the config is <https://testnet.purrsec.com>.
+6. Turn big blocks off before listing and before the keeper. Listings and settles fit in small blocks, and big blocks only arrive about once a minute.
 
-`contracts/deployments/998.json` currently has a zero registry, so the page stays in the demo.
+   ```python
+   print(Exchange(wallet, constants.TESTNET_API_URL).use_big_blocks(False))
+   ```
+
+   That submits `{"type":"evmUserModify","usingBigBlocks":false}`.
+
+7. List the whales on chain. `--dry-run` sends nothing and writes nothing. `--write` broadcasts `addWallet` for any whale that is not listed yet, then records the market addresses.
+
+   ```bash
+   python3 script/list_whales.py --dry-run
+   python3 script/list_whales.py --write
+   ```
+
+8. Run the keeper with the same key for a few minutes and confirm `Settled` receipts on <https://testnet.purrsec.com>.
+
+The eleven public whales have no open testnet positions, so those settlements move no pot. A demo with real PnL needs one extra listing whose HyperCore address is a testnet account you control, with a small position opened by hand on the testnet app (ETH perp index 4). Do not run a trading bot for that.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, and a real copy of `deployments.json` (`cp -L`, because the symlink points outside `web/`). It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
 
 Cold-launch set, from the design doc's self-set names. Re-check them live before listing. HLP's child addresses are not hardcoded; add them with `addMember` after reading `vaultDetails`.
 
@@ -180,6 +207,6 @@ Cold-launch set, from the design doc's self-set names. Re-check them live before
 5. Opt-out needs an EOA signature. How should agent or contract HyperCore wallets opt out?
 6. Should guardian pause expire on its own so a paused market cannot hold points indefinitely?
 7. Should a newly weighted perp wait one sample before its mark move counts as PnL?
-8. The testnet checklist (decimals inside a contract call, gas at 35 positions, invalid-index gas burn) still needs a live HyperEVM run. This milestone mocks those reads.
+8. A flat-book testnet settle reads equity at 6 decimals (BOBBY's $1,000 came back as 1,000,000,000). Gas at 35 positions, and invalid-index gas burn, still need a live book that is not flat. The unit tests mock those reads.
 9. Should lose-to-earn points stay an indexer concern, computed from fees and realised losses in the events?
 10. Confirm the cold-launch display names are still the owners' own, and whether James Wynn ships as a sleeping coin.

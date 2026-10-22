@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "settle": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/nonce.test.ts"
   },
   "dependencies": {
     "viem": "^2.37.5"

@@ -1,0 +1,44 @@
+name: pages
+
+# Publishes the static site in web/ only. No secrets.
+# GitHub Pages is not turned on by this file. Joe enables it in the repo settings.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage web/ and inline the address book
+        run: |
+          mkdir -p _site
+          cp web/index.html web/chain.js _site/
+          cp -L web/deployments.json _site/deployments.json
+          test -s _site/index.html
+          test -s _site/chain.js
+          test -s _site/deployments.json
+          if grep -R -n -E 'PRIVATE_KEY|BEGIN OPENSSH PRIVATE|BEGIN EC PRIVATE' _site; then
+            echo "refusing to publish a secret" >&2
+            exit 1
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

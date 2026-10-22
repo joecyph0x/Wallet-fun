@@ -24,6 +24,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { settleAbi } from "./abi.js";
+import { resetNonce, takeNonce, type NonceCursor } from "./nonce.js";
 
 const TESTNET_CHAIN_ID = 998;
 
@@ -69,6 +70,13 @@ const walletClient = account
 const lastSent = new Map<string, number>();
 const lastBook = new Map<string, string>();
 let perpByCoin: Map<string, number> | undefined;
+/** Pending nonce from the node lags a tx that was just submitted. Increment locally instead. */
+const nonceCursor: NonceCursor = {};
+let ticking = false;
+
+function isNonceError(message: string): boolean {
+  return /nonce/i.test(message);
+}
 
 function userOf(w: WalletConfig): Address | undefined {
   return w.whale ?? w.user;
@@ -124,6 +132,27 @@ async function discover(user: Address): Promise<Book | undefined> {
   }
 }
 
+async function sendSettle(w: WalletConfig, args: readonly [{ memberIndex: number; perp: number }[]]): Promise<Hex> {
+  if (!walletClient || !account) throw new Error("no wallet");
+  const pending = nonceCursor.next === undefined
+    ? await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" })
+    : 0;
+  const nonce = takeNonce(nonceCursor, pending);
+  try {
+    return await walletClient.writeContract({
+      address: w.market,
+      abi: settleAbi,
+      functionName: "settle",
+      args,
+      nonce,
+    });
+  } catch (err) {
+    // The node rejected the send, so that nonce was not consumed.
+    if (nonceCursor.next === nonce + 1) nonceCursor.next = nonce;
+    throw err;
+  }
+}
+
 async function settleOne(w: WalletConfig, reason: string, assets: { memberIndex: number; perp: number }[]) {
   if (w.market === zeroAddress) {
     console.log(`[skip] ${w.ticker} has no market address yet (${reason})`);
@@ -135,44 +164,62 @@ async function settleOne(w: WalletConfig, reason: string, assets: { memberIndex:
     lastSent.set(w.market, Date.now());
     return;
   }
+  const attempt = () => sendSettle(w, args);
   try {
-    const hash = await walletClient.writeContract({
-      address: w.market,
-      abi: settleAbi,
-      functionName: "settle",
-      args,
-    });
-    console.log(`[sent] ${w.ticker} ${hash} (${reason})`);
+    const hash = await attempt();
+    console.log(`[sent] ${w.ticker} ${hash} (${reason}) nonce-cursor=${nonceCursor.next}`);
     lastSent.set(w.market, Date.now());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(`[revert] ${w.ticker} ${message.split("\n")[0]}`);
+    if (!isNonceError(message)) {
+      console.log(`[revert] ${w.ticker} ${message.split("\n")[0]}`);
+      return;
+    }
+    // The pending count was stale. Read it again and send this settle once more.
+    resetNonce(nonceCursor);
+    try {
+      const hash = await attempt();
+      console.log(`[sent] ${w.ticker} ${hash} (${reason}, nonce retry)`);
+      lastSent.set(w.market, Date.now());
+    } catch (err2) {
+      const again = err2 instanceof Error ? err2.message : String(err2);
+      console.log(`[revert] ${w.ticker} ${again.split("\n")[0]}`);
+    }
   }
 }
 
 async function tick() {
-  const chainId = await publicClient.getChainId();
-  if (chainId !== TESTNET_CHAIN_ID) {
-    throw new Error(`refusing chain id ${chainId}; Season 0 keeper is testnet-only`);
+  if (ticking) {
+    console.log("[skip] previous tick still running");
+    return;
   }
-  const now = Date.now();
-  for (const w of config.wallets) {
-    const due = !lastSent.has(w.market) || now - (lastSent.get(w.market) ?? 0) >= config.heartbeatSec * 1000;
-    const user = userOf(w);
-    let assets: { memberIndex: number; perp: number }[] = [];
-    let changed = false;
-    if (user && user !== zeroAddress) {
-      const book = await discover(user);
-      if (!book) {
-        console.log(`[skip] ${w.ticker} info API unavailable`);
-        continue;
-      }
-      assets = book.assets;
-      const prev = lastBook.get(user);
-      changed = prev !== undefined && prev !== book.fp;
-      lastBook.set(user, book.fp);
+  ticking = true;
+  try {
+    const chainId = await publicClient.getChainId();
+    if (chainId !== TESTNET_CHAIN_ID) {
+      throw new Error(`refusing chain id ${chainId}; Season 0 keeper is testnet-only`);
     }
-    if (changed || due) await settleOne(w, changed ? "position change" : "heartbeat", assets);
+    const now = Date.now();
+    for (const w of config.wallets) {
+      const due = !lastSent.has(w.market) || now - (lastSent.get(w.market) ?? 0) >= config.heartbeatSec * 1000;
+      const user = userOf(w);
+      let assets: { memberIndex: number; perp: number }[] = [];
+      let changed = false;
+      if (user && user !== zeroAddress) {
+        const book = await discover(user);
+        if (!book) {
+          console.log(`[skip] ${w.ticker} info API unavailable`);
+          continue;
+        }
+        assets = book.assets;
+        const prev = lastBook.get(user);
+        changed = prev !== undefined && prev !== book.fp;
+        lastBook.set(user, book.fp);
+      }
+      if (changed || due) await settleOne(w, changed ? "position change" : "heartbeat", assets);
+    }
+  } finally {
+    ticking = false;
   }
 }
 
