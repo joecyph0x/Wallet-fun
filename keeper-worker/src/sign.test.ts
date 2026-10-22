@@ -48,3 +48,25 @@ test("legacy signature matches viem on chain 998", async () => {
     assert.equal(raw, viemRaw);
   }
 });
+
+test("omitted chain id stays on 998, and 1 is refused", async () => {
+  const key = generatePrivateKey();
+  const account = accountFrom(key);
+  const data = encodeSettle([]);
+  const raw = signLegacy(account, { nonce: 0, gasPrice: PRICE, gas: GAS, to: TO, data });
+  const viemAccount = privateKeyToAccount(key);
+  const viemRaw = await viemAccount.signTransaction({
+    type: "legacy",
+    chainId: 998,
+    nonce: 0,
+    gas: GAS,
+    gasPrice: PRICE,
+    to: TO,
+    data,
+  });
+  assert.equal(raw, viemRaw);
+  assert.throws(
+    () => signLegacy(account, { nonce: 0, gasPrice: PRICE, gas: GAS, to: TO, data, chainId: 1n }),
+    /refusing/,
+  );
+});

@@ -142,6 +142,38 @@ npx wrangler tail                             # LOW_GAS, [sent], [due], [error]
 
 Fund the keeper address with a little testnet HYPE before the first cron. `GET /health` on the workers.dev host shows the address and balance.
 
+## v3 USDC markets
+
+v3 is a new set of contracts under `contracts/src/v3/`. Nothing here is deployed. `script/DeployV3.s.sol` reverts unless `ENABLE_V3_DEPLOY=true` and the chain id is 999, and this change does not broadcast it. The live testnet registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5` is untouched. v2 tests still pass.
+
+There is no cheap fix for the deployed v2 markets. Each one is an EIP-1167 clone of implementation `0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d`, and that implementation has no way to change its code. A source patch would not change the bytecode the keeper calls. v2 `settle` walks every order ever placed, and the keeper's 1,000,000 gas cap runs out at about 290 lifetime orders. Those markets stay on the points game until users move to v3.
+
+v3 differences that matter:
+
+- USDC. Mainnet Circle USDC is `0xb88339CB7199b77E23DB6E890353E22632Ba630f` (6 decimals). Tests use `MockUSDC`. Deposits and withdrawals are pull balances on the registry. A trade never calls `transfer`, so a blacklisted recipient cannot brick a settle. Fees accrue in `protocolFees` and the fee wallet withdraws them. A house seed is USDC the owner actually deposited. It is not minted.
+- Settlement is one storage write per epoch, not a loop over orders. Buys and sells commit into the open epoch and fill at the next epoch's NAV. A buy and a settle in the same transaction cannot fill. Cancel is charged the fee, and it reverts once the epoch is due.
+- Minimum order is 10 USDC. Each user has their own pending commit. There is no shared 64-slot queue.
+- The keeper calls `settleMany` on the registry. A market whose epoch has not elapsed returns false. One bad book does not revert the batch. The cron is every 10 minutes. Five minutes would put the worst-case day over 0.1 HYPE, so 10 minutes is the cadence. `PROTOCOL` defaults to `v2`, so deploying this worker does not start signing chain 999 or slow the testnet keeper. A v3 worker sets `PROTOCOL=v3`, chain 999, the mainnet RPC and info URLs, and the new registry, and it can drop the every-minute cron.
+- The guardian can pause new buys immediately. Sells, claims, cancels, and withdrawals stay open. After 72 hours of pause, `exitAtLastNav` redeems pro-rata without a new oracle read. The pot cap defaults to unlimited (`0`). The guardian can only tighten it. Raising it, and every weight, dex, member, fee, listing, beacon, or implementation change, waits 24 hours.
+- Markets share one beacon. The registry is an ERC-1967 proxy. Both upgrades go through that timelock. `WalletMarketV3` runtime is 22,706 bytes, under the 24,576 limit, with about 1,870 bytes to spare. The implementation deploy needs a big block because the code deposit is over 3,000,000 gas.
+- Equity is perp account value plus spot USDC (token 0, divided by 100). The caller passes every open perp. The perp index is whatever the info API's `meta.universe` order says, so mainnet ETH is 1 and testnet ETH is 4 without a hardcoded id. Returns use 1e18, so a move smaller than one basis point still pays. A one-sided pot has zero capacity, so the funded side does not pay itself.
+- `FeePaid` carries the wallet, side, fee, notional, and how many epochs the position was held. `Exposure` carries the side and the epoch it was opened.
+
+Forge gas on the mock precompiles, which cost about 33k more than the documented precompile formula (`2000 + 65` per input and output byte) for one leg. Treat the forge numbers as the conservative side:
+
+| Call | Gas |
+| --- | --- |
+| Settle, open position, empty bucket | 414,000 |
+| Settle that fills one order, or 64 orders | 490,000 to 507,000 |
+| Settle, empty bucket, after 1,280 historical orders | 411,000 |
+| Buy that also samples a due market | 512,000 |
+| Buy or sell once the epoch is already sampled | 174,000 / 170,000 |
+| `settleMany` of 3 markets | 1,246,000 |
+
+At 0.1 gwei and a settle every 10 minutes (144 batches a day), 11 markets that all fill cost about `507,000 * 11 * 144 * 1e-10 = 0.080` HYPE/day. Eleven empty buckets cost about 0.066 HYPE/day. A 5-minute cron would be about 0.16 HYPE/day, which misses the target, so the worker uses 10 minutes. Four markets fit in one small block: the transaction gas limit is `100,000 + n * 650,000`, at most 2,700,000. Eleven markets are three transactions. The keeper pays that. A user's own buy or sell is separate and is well under 0.0001 HYPE.
+
+`test/v3/V3.t.sol` ports the six v2 attacks. Same-transaction fill does not mint. Settle gas after 1,280 orders does not grow. Dust and a crowd of real orders do not block a sell. Pause does not block a sell or a withdrawal. An instant `setWeighted` reverts, and the move still pays. A 256-run fuzz checks `USDC.balanceOf(registry) == liabilities()` after buys, cancels, sells, and price moves, which is the same statement as "sum of claims cannot exceed USDC held."
+
 ## X bot
 
 `x-bot-worker/` is a second Cloudflare Worker, for @whalewalletbot. A cron fires every five minutes (`*/5 * * * *`). Each run reads the eleven public whales (DEMO is skipped) from the mainnet info API `https://api.hyperliquid.xyz/info` (`clearinghouseState`). That call is read-only. The worker never signs, and it has no Hyperliquid key.
