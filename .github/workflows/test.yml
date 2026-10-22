@@ -48,3 +48,20 @@ jobs:
           npm ci
           npm test
           npm run typecheck
+
+  x-bot-worker:
+    name: x bot worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: x-bot-worker/package-lock.json
+      - name: events, rate limit, templates
+        working-directory: x-bot-worker
+        run: |
+          npm ci
+          npm test
+          npm run typecheck

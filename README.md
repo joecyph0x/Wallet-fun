@@ -142,6 +142,44 @@ npx wrangler tail                             # LOW_GAS, [sent], [due], [error]
 
 Fund the keeper address with a little testnet HYPE before the first cron. `GET /health` on the workers.dev host shows the address and balance.
 
+## X bot
+
+`x-bot-worker/` is a second Cloudflare Worker, for @whalewalletbot. A cron fires every five minutes (`*/5 * * * *`). Each run reads the eleven public whales (DEMO is skipped) from the mainnet info API `https://api.hyperliquid.xyz/info` (`clearinghouseState`). That call is read-only. The worker never signs, and it has no Hyperliquid key.
+
+It compares the book with the last snapshot in Workers KV. A new position at or above `NOTIONAL_USD` (default $1,000,000), a close whose realised pnl clears `PNL_USD`, a long/short flip, a size increase above `ADD_PCT` (default 50%), or an unrealised pnl swing of at least `PNL_USD` becomes an event. The first snapshot is a baseline and posts nothing, so a deploy does not announce positions that were already open. `WHALE_NOTIONAL` is optional JSON, for example `{"WYNN":"500000"}`, and overrides the open threshold for that ticker. A bad JSON value is ignored.
+
+KV writes happen only when a book actually changed, or when a post is recorded. Mark-price noise and small uPnL drift do not write, so the swing baseline stays put until it crosses the threshold. An event that was not posted keeps the old snapshot and is tried again on a later run. One document holds every whale, so a busy day is a few hundred writes, under the free-plan 1,000 writes a day. The cron itself is 288 requests a day.
+
+Posts are short and use the ticker only. They never @mention a whale, including when the listing name is an X handle. TAIL/FADE odds come from the v2 testnet pots (registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5`, chain 998). If that read fails, or the RPC is not chain 998, the odds are left off. A line is not financial advice. "Season 0, points only" is added to about one post in four.
+
+X bills a plain post at $0.015 and any post that contains a URL at $0.20. A bare `whalewallet.fun` is auto-linked, so it counts as a URL. `LINK_MODE` controls that:
+
+- `none` (the default) never includes a URL or a bare domain. Some posts say `link in bio` or `whalewallet dot fun` instead.
+- `daily` allows one URL, and only on the optional daily recap.
+- `all` puts `https://whalewallet.fun/#/w/TICKER` on event posts. That path is the whale page. `#/w/TICKER` is the route the site actually opens.
+
+`MAX_DAILY_SPEND_USD` (default `0.30`) is checked against the post that would be sent. Fourteen plain posts cost $0.21, under the cap. One URL post costs $0.20, so a second URL post the same day is blocked at the default cap. `MAX_POSTS_PER_DAY` (default 14) and a 20 minute gap (`MIN_GAP_SEC`) also apply. The biggest event wins. Several events for one whale become one post. `DAILY_RECAP` defaults to `false`. When it is `true`, one recap can go out after 22:00 UTC if nothing more important was posted and the budget allows.
+
+`DRY_RUN` defaults to `true`. The worker logs the post, stores it for `/preview`, and counts it against the cap and the spend guard, but it does not call X. Set `DRY_RUN` to `false` only after `/preview` looks right. `GET /preview` returns the last 20 composed posts, today's plain-versus-URL spend, and a snapshot summary. It returns no secrets.
+
+A 429 waits 30 minutes, or the `Retry-After` value when that is shorter, and never more than a day. A 401 or 403 waits six hours. The post is not counted when X rejects it. OAuth 1.0a HMAC-SHA1 is WebCrypto. The four credentials are secrets, never `wrangler.toml` keys:
+
+```bash
+cd x-bot-worker
+npm install
+npm test
+npm run typecheck
+npx wrangler kv namespace create XBOT          # paste the id into wrangler.toml
+npx wrangler secret put X_API_KEY
+npx wrangler secret put X_API_SECRET
+npx wrangler secret put X_ACCESS_TOKEN
+npx wrangler secret put X_ACCESS_SECRET
+npx wrangler deploy                            # needs a Cloudflare login. Not run from CI.
+npx wrangler tail
+```
+
+Leave `DRY_RUN` as `true` for the first deploy. The placeholder KV id in `wrangler.toml` has to be replaced or the deploy will not bind storage. The free plan's 10ms CPU cap is the reason this worker has no viem and no signing: a run is JSON, a couple of `eth_call` batches of at most 20, and one HMAC only when a live post is sent. Subrequests stay well under 50 (eleven info calls, fills only when a position disappeared, two RPC batches, two KV reads).
+
 ## Deploy
 
 Testnet only. `DeploySeason0` reverts unless `block.chainid` is 998. It deploys the registry and, with `WRITE_DEPLOYMENT=1`, patches the `registry`, `implementation`, and `deployer` fields in `contracts/deployments/998.json`. It leaves the `wallets` array alone. `REGISTRY=0x...` skips the create. The script is not executed by `forge test` or CI.
