@@ -164,6 +164,10 @@ contract WalletMarket {
 
     Order[] public orders;
     uint256 public openOrders;
+
+    function orderCount() external view returns (uint256) {
+        return orders.length;
+    }
     uint256 public queuedBuyPoints;
 
     mapping(bytes32 => Snap) internal _snap;

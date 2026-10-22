@@ -52,6 +52,7 @@ contract SettlementTest is Season0Test {
         _book(1000, 1_000_000, 30_000e6);
         vm.prank(alice);
         market.queueBuy(WalletMarket.Side.Tail, 5_000e6);
+        assertEq(market.orderCount(), 1);
         assertEq(market.sharesOf(alice, WalletMarket.Side.Tail), 0);
         assertEq(market.tailPot(), 0);
 
@@ -67,9 +68,11 @@ contract SettlementTest is Season0Test {
         _book(1000, 1_000_000, 30_000e6);
         vm.prank(alice);
         uint256 id = market.queueBuy(WalletMarket.Side.Tail, 4_000e6);
+        assertEq(market.orderCount(), 1);
         assertEq(reg.points(alice), 6_000e6);
         vm.prank(alice);
         market.cancel(id);
+        assertEq(market.orderCount(), 1, "cancel closes the order and keeps the slot");
         assertEq(reg.points(alice), 10_000e6);
         _assertConserved();
 

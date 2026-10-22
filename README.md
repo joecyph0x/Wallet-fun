@@ -66,47 +66,70 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 ## Front-end
 
-`web/index.html` is the Season 0 proof of concept. It is a single static file: whale equity, positions, and marks come from `api.hyperliquid.xyz` in the browser, and pots, the queue, and points live in `localStorage`.
+`web/index.html` keeps the Season 0 look. Whale equity, positions, and marks still come from `api.hyperliquid.xyz`. Pots and points stay in `localStorage` until a wallet is connected and `web/deployments.json` has a non-zero registry. That file is a symlink to `contracts/deployments/998.json`.
 
 ```bash
 cd web && python3 -m http.server 8080
 ```
 
-Still to wire to the contracts:
+Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
 
-- `claimSeason0()` and the player's points balance, instead of the local 10,000-point wallet
-- `queueBuy`, `queueSell`, `cancel`, and fill events, instead of the in-browser queue
-- NAV, pots, `eRef`, status, and `Settled` / `PositionSampled` from the market, instead of simulated pots
-- the registry's curated list, sleep / wake, and the EIP-712 opt-out (the page only toasts today)
-- the keeper's testnet addresses once a deploy exists
-
-The page already tells visitors that Season 0 points have no cash value and that a real-money product is not offered to UK or US persons. Geoblocking and terms for a later real-money season are not part of this milestone.
+A zero registry, a missing file, a rejected connection, or no injected wallet leaves the simulated demo running. The public page does not need a deploy.
 
 ## Keeper
 
-`keeper/` is a dry-runnable loop for HyperEVM testnet. It calls `settle` on a heartbeat of 60 seconds and also when the public info API reports a position-size change. A zero market address is skipped. Chain id other than 998 is refused.
+`keeper/` reads `contracts/deployments/998.json`. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is the whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
 
 ```bash
 cd keeper
 npm install
 npm run typecheck
-CONFIG=config/testnet.example.json npm run settle          # prints calls
-KEEPER_PRIVATE_KEY=0x... CONFIG=config/testnet.json npm run settle
+npm run settle                                         # dry-run, prints calls
+KEEPER_PRIVATE_KEY=0x... npm run settle                # broadcasts. Never commit the key.
 ```
-
-`KEEPER_PRIVATE_KEY` is an environment variable. The example config has no key. Do not commit one.
 
 ## Deploy
 
-`contracts/script/DeploySeason0.s.sol` deploys the registry and the market implementation. It reverts unless `block.chainid` is 998, and it reads `DEPLOYER_PRIVATE_KEY` from the environment. It does not list wallets and it is not part of `forge test` or CI.
+Testnet only. The script reverts unless `block.chainid` is 998. It deploys the registry, lists every wallet in `contracts/script/whales.json`, and with `WRITE_DEPLOYMENT=1` overwrites `contracts/deployments/998.json`. A wallet that fails `coreUserExists` is recorded with `listError: "NoCoreUser"` and a zero market, and the rest still list. `REGISTRY=0x...` skips the create and only lists. The script is not part of `forge test` or CI.
 
-```bash
-cd contracts
-export DEPLOYER_PRIVATE_KEY=0x...    # testnet key only
-forge script script/DeploySeason0.s.sol --rpc-url hyperevm_testnet --broadcast
-```
+HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit was `0x2dc6c0`, which is that cap. The registry constructor also creates the market implementation. That runtime is 17,409 bytes, so its code deposit alone is 200 × 17,409 = 3,481,800 gas, which `test_registryCreationNeedsABigBlock` locks. The deploy transaction has to land in a big block (30,000,000 gas). The init code is about 25KB, under the 49,152-byte init-code limit, and the market runtime is under the 24,576-byte contract limit. Listing clones are small.
 
-Listing is a later curator transaction, after the testnet HyperCore accounts exist. `addWallet` checks `coreUserExists`. Mainnet addresses will not list on testnet unless those accounts exist there.
+1. Create a throwaway key. Do not commit it and do not print it.
+
+   ```bash
+   mkdir -p /tmp/ww-secret && chmod 700 /tmp/ww-secret
+   cast wallet new --json > /tmp/ww-secret/key.json
+   chmod 600 /tmp/ww-secret/key.json
+   ```
+
+2. Fund it from the official faucet: <https://app.hyperliquid-testnet.xyz/drip>. The same address must already have deposited on Hyperliquid mainnet. The faucet then credits 1,000 mock USDC on HyperCore. The info call is `{"type":"claimDrip","user":"<address>"}` on `https://api.hyperliquid-testnet.xyz/info`. An address with no mainnet deposit gets `Cannot claim drip because user <address> does not exist on mainnet.` Stop there. Do not use another faucet.
+
+3. Put testnet HYPE on HyperEVM. The drip is mock USDC, not gas. Buy a little testnet HYPE with that USDC on HyperCore, then send the HYPE to `0x2222222222222222222222222222222222222222`. That credits the same address on the EVM (18 decimals). At the current 0.1 gwei base fee, 0.05 HYPE covers the big-block deploy, the eleven listings, and a few keeper cycles.
+
+4. Turn on big blocks for that address. It has to be a Core user first, which the drip does. From the [official Python SDK](https://github.com/hyperliquid-dex/hyperliquid-python-sdk):
+
+   ```python
+   from hyperliquid.exchange import Exchange
+   from hyperliquid.utils import constants
+   from eth_account import Account
+   wallet = Account.from_key(os.environ["DEPLOYER_PRIVATE_KEY"])
+   print(Exchange(wallet, constants.TESTNET_API_URL).use_big_blocks(True))
+   ```
+
+   That submits `{"type":"evmUserModify","usingBigBlocks":true}`. Switch it back off after the deploy if you want the keeper on small blocks. `bigBlockGasPrice` is not implemented on `rpc.hyperliquid-testnet.xyz`; `eth_gasPrice` was `0x5f5e100` (0.1 gwei) when this was checked.
+
+5. Deploy and write the address book.
+
+   ```bash
+   export DEPLOYER_PRIVATE_KEY="$(python3 -c 'import json; d=json.load(open("/tmp/ww-secret/key.json")); row=d["data"][0] if isinstance(d, dict) else d[0]; print(row["private_key"])')"
+   cd contracts
+   WRITE_DEPLOYMENT=1 forge script script/DeploySeason0.s.sol \
+     --rpc-url hyperevm_testnet --broadcast --slow
+   ```
+
+6. Run the keeper with the same key for a few minutes and confirm `Settled` receipts. The explorer linked in the config is <https://testnet.purrsec.com>.
+
+`contracts/deployments/998.json` currently has a zero registry, so the page stays in the demo.
 
 Cold-launch set, from the design doc's self-set names. Re-check them live before listing. HLP's child addresses are not hardcoded; add them with `addMember` after reading `vaultDetails`.
 
