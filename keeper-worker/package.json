@@ -5,15 +5,17 @@
   "description": "Season 0 keeper as a Cloudflare Worker. Settles HyperEVM testnet markets once a minute.",
   "type": "module",
   "scripts": {
-    "test": "tsx --test src/decide.test.ts",
+    "test": "tsx --test src/decide.test.ts src/sign.test.ts src/health.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "viem": "^2.37.5"
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0"
   },
   "devDependencies": {
+    "viem": "^2.37.5",
     "@cloudflare/workers-types": "^5.20261019.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",

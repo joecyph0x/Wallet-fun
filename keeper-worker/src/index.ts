@@ -6,13 +6,11 @@
  * arrives as the KEEPER_PRIVATE_KEY secret. It is never written to wrangler.toml.
  *
  * There is no multicall on WalletMarket.settle. Each run signs at most
- * MAX_TX_PER_RUN transactions (default 2) so the free-plan 10ms CPU cap stays
- * in reach. Queued orders fill on the contract's 60s heartbeat, so a one-minute
- * cron is the same granularity the chain already enforces.
+ * MAX_TX_PER_RUN transactions (default 2). Queued orders fill on the contract's
+ * 60s heartbeat, so a one-minute cron is the same granularity the chain already
+ * enforces. Signing uses @noble/curves directly so the isolate does not load viem.
  */
-import { encodeFunctionData, type Address, type Hex } from "viem";
-import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { SEL, settleAbi } from "./abi.js";
+import { SEL, SETTLED_TOPIC } from "./abi.js";
 import {
   accountValue6,
   assertTestnet,
@@ -25,6 +23,10 @@ import {
   type MarketSnap,
   type SettleReason,
 } from "./decide.js";
+import { pickLatestLog, settleAgeSec, type LogRow } from "./health.js";
+import { accountFrom, encodeSettle, SETTLE_GAS, signLegacy, type Hex, type KeeperAccount } from "./sign.js";
+
+type Address = Hex;
 
 export interface Env {
   KEEPER_PRIVATE_KEY?: string;
@@ -39,7 +41,7 @@ export interface Env {
 }
 
 type RpcCall = { method: string; params: unknown[] };
-type RpcRow = { id?: number; result?: string; error?: { message?: string } };
+type RpcRow = { id?: number; result?: unknown; error?: { message?: string } };
 
 type Report = {
   ok: boolean;
@@ -55,27 +57,13 @@ type Report = {
   note: string;
 };
 
-const SETTLE_GAS = 400_000n;
 /** Free-plan subrequest cap is 50. Leave room for view batches, info calls, and sends. */
 const MAX_MARKETS_PER_RUN = 24;
+/** How far back /health looks for this keeper's Settled logs. About a day of 1s blocks. */
+const LOG_LOOKBACK = 100_000n;
 const NOTE =
-  "Last cron report lives in this isolate. A cold isolate has no last run; wrangler tail is the log. No KV.";
+  "Read from chain on each request. Isolates do not share memory. wrangler tail is the cron log. No KV.";
 
-let lastReport: Report = {
-  ok: true,
-  chainId: null,
-  keeper: null,
-  lastRun: null,
-  balanceHype: null,
-  settled: [],
-  skippedIdle: 0,
-  considered: 0,
-  lowGas: false,
-  errors: [],
-  note: NOTE,
-};
-
-let cached: { key: string; account: PrivateKeyAccount } | undefined;
 let nonceNext: number | undefined;
 let perpByCoin: Map<string, number> | undefined;
 let marketCursor = 0;
@@ -122,23 +110,13 @@ function asAddress(wordHex: string | undefined): Address {
   return `0x${h.slice(24)}` as Address;
 }
 
-function u256(hex: string | undefined): bigint | undefined {
-  if (!hex || hex === "0x") return undefined;
+function u256(hex: unknown): bigint | undefined {
+  if (typeof hex !== "string" || !hex || hex === "0x") return undefined;
   try {
     return BigInt(hex);
   } catch {
     return undefined;
   }
-}
-
-function accountFrom(key: string): PrivateKeyAccount {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
-    throw new Error("KEEPER_PRIVATE_KEY is missing or not a 32-byte hex key");
-  }
-  if (cached?.key === key) return cached.account;
-  const account = privateKeyToAccount(key as Hex);
-  cached = { key, account };
-  return account;
 }
 
 /** One HTTP request per chunk. The testnet RPC rejects a JSON-RPC batch above 20. */
@@ -167,7 +145,7 @@ async function rpcBatch(env: Env, calls: RpcCall[], budget: { n: number }): Prom
 
 function resultOf(row: RpcRow | undefined, label: string): string {
   if (!row || row.error) throw new Error(row?.error?.message || `${label} failed`);
-  if (row.result == null) throw new Error(`${label} empty`);
+  if (typeof row.result !== "string") throw new Error(`${label} empty`);
   return row.result;
 }
 
@@ -230,22 +208,19 @@ function rewindNonce(nonce: number) {
 
 async function sendSettle(
   env: Env,
-  account: PrivateKeyAccount,
+  account: KeeperAccount,
   market: Address,
   assets: { memberIndex: number; perp: number }[],
   nonce: number,
   gasPrice: bigint,
   budget: { n: number },
 ): Promise<Hex> {
-  const data = encodeFunctionData({ abi: settleAbi, functionName: "settle", args: [assets] });
-  const raw = await account.signTransaction({
-    type: "legacy",
-    chainId: 998,
+  const raw = signLegacy(account, {
     nonce,
-    gas: SETTLE_GAS,
     gasPrice,
+    gas: SETTLE_GAS,
     to: market,
-    data,
+    data: encodeSettle(assets),
   });
   const rows = await rpcBatch(env, [{ method: "eth_sendRawTransaction", params: [raw] }], budget);
   const hash = resultOf(rows[0], "eth_sendRawTransaction");
@@ -353,7 +328,6 @@ export async function run(env: Env): Promise<Report> {
       report.ok = false;
       console.log(`LOW_GAS balance=${report.balanceHype} HYPE < ${env.MIN_GAS_HYPE || "0.005"}; settling paused until topped up`);
       report.lastRun = new Date().toISOString();
-      lastReport = report;
       return report;
     }
 
@@ -427,37 +401,121 @@ export async function run(env: Env): Promise<Report> {
   }
   report.lastRun = new Date().toISOString();
   console.log(`[done] settled=${report.settled.length} errors=${report.errors.length} subrequests=${budget.n}`);
-  lastReport = report;
   return report;
 }
 
-async function health(env: Env): Promise<Report> {
-  const report: Report = {
-    ...lastReport,
-    settled: [...lastReport.settled],
-    errors: [...lastReport.errors],
+type HealthMarket = {
+  market: string;
+  whale: string;
+  lastSettleTs: number;
+  ageSec: number | null;
+  openOrders: number | null;
+};
+
+type HealthBody = {
+  ok: boolean;
+  chainId: number | null;
+  keeper: string | null;
+  balanceHype: string | null;
+  nonce: number | null;
+  pendingNonce: number | null;
+  latestTx: string | null;
+  latestTxBlock: number | null;
+  markets: HealthMarket[];
+  errors: string[];
+  note: string;
+};
+
+async function latestKeeperTx(
+  env: Env,
+  keeper: Address,
+  markets: { market: Address }[],
+  block: bigint,
+  budget: { n: number },
+): Promise<{ hash: string; block: number } | null> {
+  if (!markets.length) return null;
+  const from = block > LOG_LOOKBACK ? block - LOG_LOOKBACK : 0n;
+  const rows = await rpcBatch(env, [{
+    method: "eth_getLogs",
+    params: [{
+      fromBlock: "0x" + from.toString(16),
+      toBlock: "latest",
+      address: markets.map((row) => row.market),
+      topics: [SETTLED_TOPIC, null, "0x" + word(BigInt(keeper))],
+    }],
+  }], budget);
+  if (rows[0]?.error) throw new Error(rows[0].error.message || "eth_getLogs failed");
+  if (!Array.isArray(rows[0]?.result)) throw new Error("eth_getLogs failed");
+  return pickLatestLog(rows[0].result as LogRow[]);
+}
+
+async function health(env: Env): Promise<HealthBody> {
+  const body: HealthBody = {
+    ok: true,
+    chainId: null,
+    keeper: null,
+    balanceHype: null,
+    nonce: null,
+    pendingNonce: null,
+    latestTx: null,
+    latestTxBlock: null,
+    markets: [],
+    errors: [],
+    note: NOTE,
   };
+  const budget = { n: 0 };
   try {
     assertTestnet(Number(env.CHAIN_ID));
     if (!env.KEEPER_PRIVATE_KEY) throw new Error("KEEPER_PRIVATE_KEY is not set");
     const account = accountFrom(env.KEEPER_PRIVATE_KEY);
-    report.keeper = account.address;
-    if (!report.balanceHype || !report.chainId) {
-      const budget = { n: 0 };
-      const rows = await rpcBatch(env, [
-        { method: "eth_chainId", params: [] },
-        { method: "eth_getBalance", params: [account.address, "latest"] },
-      ], budget);
-      const chainId = Number(resultOf(rows[0], "eth_chainId"));
-      assertTestnet(chainId);
-      report.chainId = chainId;
-      report.balanceHype = formatHype(u256(resultOf(rows[1], "balance")) ?? 0n);
+    body.keeper = account.address;
+    const head = await rpcBatch(env, [
+      { method: "eth_chainId", params: [] },
+      { method: "eth_getBalance", params: [account.address, "latest"] },
+      { method: "eth_getTransactionCount", params: [account.address, "latest"] },
+      { method: "eth_getTransactionCount", params: [account.address, "pending"] },
+      { method: "eth_blockNumber", params: [] },
+    ], budget);
+    const chainId = Number(resultOf(head[0], "eth_chainId"));
+    assertTestnet(chainId);
+    body.chainId = chainId;
+    body.balanceHype = formatHype(u256(resultOf(head[1], "balance")) ?? 0n);
+    body.nonce = Number(u256(resultOf(head[2], "nonce")) ?? 0n);
+    body.pendingNonce = Number(u256(resultOf(head[3], "pending nonce")) ?? 0n);
+    const block = u256(resultOf(head[4], "block")) ?? 0n;
+    const listed = await loadMarkets(env, budget);
+    const sels = [SEL.lastSettleTs, SEL.openOrders];
+    const calls: RpcCall[] = [];
+    for (const row of listed) {
+      for (const sel of sels) calls.push({ method: "eth_call", params: [{ to: row.market, data: sel }, "latest"] });
     }
+    const views = calls.length ? await rpcBatch(env, calls, budget) : [];
+    const nowSec = Math.floor(Date.now() / 1000);
+    body.markets = listed.map((row, i) => {
+      const last = Number(u256(views[i * 2]?.result) ?? 0n);
+      const ordersRow = views[i * 2 + 1];
+      const orders = ordersRow?.error || ordersRow?.result == null ? null : Number(u256(ordersRow.result) ?? 0n);
+      return {
+        market: row.market,
+        whale: row.whale,
+        lastSettleTs: last,
+        ageSec: settleAgeSec(last, nowSec),
+        openOrders: orders,
+      };
+    });
+    try {
+      const latest = await latestKeeperTx(env, account.address, listed, block, budget);
+      body.latestTx = latest?.hash ?? null;
+      body.latestTxBlock = latest?.block ?? null;
+    } catch (err) {
+      body.errors.push(message(err));
+    }
+    body.ok = body.errors.length === 0;
   } catch (err) {
-    report.ok = false;
-    report.errors = [...report.errors, message(err)];
+    body.ok = false;
+    body.errors.push(message(err));
   }
-  return report;
+  return body;
 }
 
 function json(body: unknown, status = 200): Response {
