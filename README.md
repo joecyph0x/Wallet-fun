@@ -66,9 +66,9 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 ## Front-end
 
-`web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Whale equity, positions, and marks still come from mainnet `api.hyperliquid.xyz`. The eleven listed whales are flat on HyperEVM testnet, so a settlement there has PnL 0 while the cards still show mainnet positions. A testnet bar under the proof-of-concept banner says that on every page.
+`web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from `infoApi` in `contracts/deployments/998.json` (`https://api.hyperliquid-testnet.xyz/info`) instead, including its marks, so that card matches the book the keeper settles. The public whales stay on mainnet: they are flat on testnet, and switching every card would blank the page. DEMO is the testnet-only whale.
 
-Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry and all 11 market addresses. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
+Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry, the market addresses, and any `testnetOnly` flag. A wallet in that file that the page does not already know is added to the grid. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
 
 ```bash
 cd web && python3 -m http.server 8080
@@ -80,7 +80,7 @@ A missing file, a rejected connection, or no injected wallet leaves the simulate
 
 ## Keeper
 
-`keeper/` reads `contracts/deployments/998.json`. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is the whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
+`keeper/` reads every wallet in `contracts/deployments/998.json`, including a testnet-only demo whale. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is that whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
 
 Settles in one tick run one after another, and a new tick waits if the previous one is still going. The keeper keeps a local nonce cursor: it reads the node's pending nonce only when the cursor is empty, then increments locally. The testnet RPC's pending count lags a transaction that was just submitted, and re-reading it made the next `settle` reuse a nonce (`nonce too low`). A nonce error clears the cursor and retries that settle once. Any other reject puts the unused nonce back. `npm test` covers the cursor.
 
@@ -143,7 +143,7 @@ Season 0 is deployed on HyperEVM testnet. Registry `0xcA309d8D1Ecd81d85D968CF313
 
    That submits `{"type":"evmUserModify","usingBigBlocks":false}`.
 
-7. List the whales on chain. `--dry-run` sends nothing and writes nothing. `--write` broadcasts `addWallet` for any whale that is not listed yet, then records the market addresses.
+7. List the whales on chain. The script reads `script/whales.json`, including a `testnetOnly` demo whale, and creates a missing row in `deployments/998.json` instead of stopping. A per-whale `weightedPerps` overrides the file default (DEMO is testnet ETH, index 4). `--dry-run` sends nothing and writes nothing. `--write` broadcasts `addWallet` for any whale that is not listed on the current registry, then records the market addresses. After a redeploy the old market address is ignored: the script asks the new registry.
 
    ```bash
    python3 script/list_whales.py --dry-run

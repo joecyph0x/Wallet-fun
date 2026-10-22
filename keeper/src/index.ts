@@ -34,6 +34,7 @@ type WalletConfig = {
   market: Address;
   user?: Address;
   whale?: Address;
+  testnetOnly?: boolean;
   assets?: Asset[];
 };
 type KeeperConfig = {
@@ -224,9 +225,10 @@ async function tick() {
 }
 
 console.log(
-  account
+  (account
     ? `whalewallet.fun keeper ${account.address} on chain ${config.chainId}`
-    : "whalewallet.fun keeper dry-run (set KEEPER_PRIVATE_KEY to broadcast)",
+    : "whalewallet.fun keeper dry-run (set KEEPER_PRIVATE_KEY to broadcast)") +
+    `, ${config.wallets.length} markets from config`,
 );
 
 await tick();

@@ -94,7 +94,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:30px 18px 50px;
 </head>
 <body>
 <div class="poc"><div id="pocBanner">PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.</div></div>
-<div class="tn"><div id="testnetNotice">TESTNET — these cards show Hyperliquid mainnet positions. Season 0 settles on HyperEVM testnet, where these whales have no open positions, so on-chain PnL is 0. Without a connected wallet the pots on this page are still the browser simulation.</div></div>
+<div class="tn"><div id="testnetNotice">TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.</div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
   <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
@@ -109,6 +109,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:30px 18px 50px;
 <script>
 "use strict";
 const API='https://api.hyperliquid.xyz/info';
+const TESTNET_API='https://api.hyperliquid-testnet.xyz/info';
 const QS=new URLSearchParams(location.search);
 const EPOCH=Math.max(10,+(QS.get('epoch')||60))*1000; // 1-minute settlement (override ?epoch=20 for demos)
 const ALPHA=0.25, RCAP=0.25, FEE=0.005, START_PTS=10000;
@@ -139,13 +140,13 @@ const hhmm=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-d
 function rng(seed){let h=2166136261;for(const c of seed)h=Math.imul(h^c.charCodeAt(0),16777619);return()=>{h+=0x6D2B79F5;let t=h;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('on'),2600)}
 let liveOK=0, liveFail=0;
-async function post(body){
+async function post(body,api){
   const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),9000);
-  try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();liveOK++;return j}
+  try{const r=await fetch(api||API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();liveOK++;return j}
   finally{clearTimeout(to)}
 }
 // ---------- state ----------
-const S={marks:{},prevDay:{},w:{},events:[],mode:'connecting',lastPoll:0,nextSettle:0,settleN:0};
+const S={marks:{},tMarks:{},prevDay:{},w:{},events:[],mode:'connecting',lastPoll:0,nextSettle:0,settleN:0};
 const U=JSON.parse(localStorage.getItem('wf_user')||'null')||{pts:START_PTS,hold:{},queue:[],hist:[],handle:'anon'+Math.floor(Math.random()*9000+1000),deposited:START_PTS};
 const saveU=()=>localStorage.setItem('wf_user',JSON.stringify(U));
 window.WALLETS=WALLETS;window.S=S;window.U=U;window.byTk=byTk;
@@ -164,7 +165,7 @@ function initDemo(){
 }
 initDemo();
 // ---------- data parsing ----------
-function parseMeta(m,prefix){const[u,c]=m;u.universe?u.universe.forEach((a,i)=>{S.marks[a.name]=+c[i].markPx||0;S.prevDay[a.name]=+c[i].prevDayPx||0}):u.forEach((a,i)=>{S.marks[a.name]=+c[i].markPx||0;S.prevDay[a.name]=+c[i].prevDayPx||0})}
+function parseMeta(m,dest){const book=dest||S.marks;const[u,c]=m;const list=u.universe||u;list.forEach((a,i)=>{book[a.name]=+c[i].markPx||0;if(book===S.marks)S.prevDay[a.name]=+c[i].prevDayPx||0})}
 function parseState(st,dex){
   if(!st)return{eq:0,pos:[]};
   const eq=+st.marginSummary.accountValue||0;
@@ -172,14 +173,18 @@ function parseState(st,dex){
   return{eq,pos};
 }
 async function getMarks(){
-  try{const [a,b]=await Promise.all([post({type:'metaAndAssetCtxs'}),post({type:'metaAndAssetCtxs',dex:'xyz'})]);parseMeta(a);parseMeta(b);return true}
-  catch(e){liveFail++;if(!Object.keys(S.marks).length){parseMeta(SNAP.meta_core);parseMeta(SNAP.meta_xyz)}return false}
+  let ok=true;
+  try{const [a,b]=await Promise.all([post({type:'metaAndAssetCtxs'}),post({type:'metaAndAssetCtxs',dex:'xyz'})]);parseMeta(a);parseMeta(b)}
+  catch(e){liveFail++;if(!Object.keys(S.marks).length){parseMeta(SNAP.meta_core);parseMeta(SNAP.meta_xyz)}ok=false}
+  if(WALLETS.some(w=>w.testnetOnly)){try{parseMeta(await post({type:'metaAndAssetCtxs'},TESTNET_API),S.tMarks)}catch(e){liveFail++}}
+  return ok;
 }
 let HLP_KIDS=null;
 async function getWallet(w){
-  const fromSnap=a=>SNAP.states[a];
+  const api=w.testnetOnly?TESTNET_API:API;
+  const fromSnap=a=>w.testnetOnly?null:SNAP.states[a];
   let parts=[], usedSnap=false;
-  const one=async(a,xyz)=>{try{const c=await post({type:'clearinghouseState',user:a});const x=xyz?await post({type:'clearinghouseState',user:a,dex:'xyz'}):null;return{core:c,xyz:x}}catch(e){liveFail++;usedSnap=true;return fromSnap(a)||{}}};
+  const one=async(a,xyz)=>{try{const c=await post({type:'clearinghouseState',user:a},api);const x=xyz?await post({type:'clearinghouseState',user:a,dex:'xyz'},api):null;return{core:c,xyz:x}}catch(e){liveFail++;if(w.testnetOnly)return{core:null};usedSnap=true;return fromSnap(a)||{}}};
   if(w.vault){
     if(!HLP_KIDS){try{const v=await post({type:'vaultDetails',vaultAddress:w.addr});HLP_KIDS=v.relationship.data.childAddresses}catch(e){HLP_KIDS=SNAP.vault.children}}
     const all=await Promise.all([w.addr,...HLP_KIDS].map(a=>one(a,false)));parts=all;
@@ -193,13 +198,14 @@ async function getWallet(w){
 // ---------- settlement maths (design doc §1/§3) ----------
 // PnL since last check = Σ szi_prev × (mark_now − mark_prev)  (position-integrated, immune to deposits/withdrawals)
 // r = PnL / E_ref, clamped to ±25% ; capacity C = min(TAIL pot, FADE pot, α·E_ref) ; Δ = r·C moves from loser side to winner side.
-function posPnl(prevPos,prevMarks){let p=0;if(!prevPos)return 0;for(const c in prevPos){const m0=prevMarks[c],m1=S.marks[c];if(m0&&m1)p+=prevPos[c]*(m1-m0)}return p}
+function marksOf(x){return x.def&&x.def.testnetOnly?S.tMarks:S.marks}
+function posPnl(prevPos,prevMarks,cur){let p=0;if(!prevPos)return 0;const book=cur||S.marks;for(const c in prevPos){const m0=prevMarks[c],m1=book[c];if(m0&&m1)p+=prevPos[c]*(m1-m0)}return p}
 function applyR(x,r){const rc=Math.max(-RCAP,Math.min(RCAP,r));const C=Math.min(x.T,x.F,ALPHA*Math.max(x.eRef,1));const d=rc*C;x.T+=d;x.F-=d;return{rc,d,C}}
 const nav=(x,s)=>{const pot=s==='T'?x.T:x.F,sup=s==='T'?x.supT:x.supF;return sup?pot/sup:1};
 function pays(x,s){const mine=s==='T'?x.T:x.F,all=(+x.T||0)+(+x.F||0);if(!(mine>0))return '—';const m=all/mine;return (m>=100?m.toFixed(0):m.toFixed(1))+'x'}
 window.nav=nav;window.pays=pays;
 function snapPos(x){const o={};for(const p of x.pos)o[p.coin]=p.szi;return o}
-function snapMarks(x){const o={};for(const p of x.pos)o[p.coin]=S.marks[p.coin];return o}
+function snapMarks(x){const o={};const src=marksOf(x);for(const p of x.pos)o[p.coin]=src[p.coin];return o}
 // backfill sparkline from real portfolio day pnlHistory
 function backfill(x,day){
   const ph=(day&&day.pnlHistory)||[];x.hist=[];
@@ -258,19 +264,34 @@ async function pollAll(first){
   await Promise.all(WALLETS.map(async w=>{const x=S.w[w.tk];const r=await getWallet(w);if(r.usedSnap)snapUsed=true;
     x.eq=r.eq;x.pos=r.pos;x.ntl=r.pos.reduce((a,p)=>a+p.ntl,0);
     if(!(window.WW&&WW.live())){x.status=(x.eq<1000||!x.pos.length)?'sleeping':'live';if(!x.eRef)x.eRef=Math.max(x.eq,1);}
-    if(x.prevPos)x.pend=posPnl(x.prevPos,x.prevMarks);
+    if(x.prevPos)x.pend=posPnl(x.prevPos,x.prevMarks,marksOf(x));
     diffEvents(w,x,r.pos);
   }));
   S.mode=snapUsed?'snapshot':'live';S.lastPoll=Date.now();
 }
-async function pollMarksOnly(){await getMarks();for(const w of WALLETS){const x=S.w[w.tk];if(x.prevPos)x.pend=posPnl(x.prevPos,x.prevMarks)}}
+async function pollMarksOnly(){await getMarks();for(const w of WALLETS){const x=S.w[w.tk];if(x.prevPos)x.pend=posPnl(x.prevPos,x.prevMarks,marksOf(x))}}
+function mergeDeployment(cfg){
+  const rows=(cfg&&cfg.wallets)||[];
+  for(const row of rows){
+    if(!row||!row.ticker||!row.whale)continue;
+    let w=byTk[row.ticker];
+    if(!w){
+      w={tk:row.ticker,name:row.name||row.ticker,addr:row.whale,src:row.testnetOnly?'HyperEVM testnet account':'deployment',col:row.testnetOnly?'#ffe14d':'#3ee0ff',emoji:row.testnetOnly?'🧪':'🐋',testnetOnly:!!row.testnetOnly};
+      WALLETS.push(w);byTk[w.tk]=w;initWallet(w);
+    }
+    w.testnetOnly=!!row.testnetOnly;
+    if(row.whale)w.addr=row.whale;
+    if(row.name)w.name=row.name;
+  }
+}
 async function boot(){
   if(window.WW)await WW.attach();
+  mergeDeployment(window.WW&&WW.config&&WW.config());
   await pollAll(true);
   // real 24h history + recent real fills for the ticker
   await Promise.all(WALLETS.map(async w=>{const x=S.w[w.tk];let day=null,fills=null;
-    try{const p=await post({type:'portfolio',user:w.addr});day=Object.fromEntries(p).day}catch(e){day=SNAP.portfolio[w.addr]}
-    try{fills=await post({type:'userFillsByTime',user:w.addr,startTime:Date.now()-4*3600e3,aggregateByTime:true});fills=fills.slice(-60)}catch(e){fills=SNAP.fills[w.addr]}
+    try{const p=await post({type:'portfolio',user:w.addr},w.testnetOnly?TESTNET_API:API);day=Object.fromEntries(p).day}catch(e){day=w.testnetOnly?null:SNAP.portfolio[w.addr]}
+    try{fills=await post({type:'userFillsByTime',user:w.addr,startTime:Date.now()-4*3600e3,aggregateByTime:true},w.testnetOnly?TESTNET_API:API);fills=fills.slice(-60)}catch(e){fills=w.testnetOnly?[]:SNAP.fills[w.addr]}
     backfill(x,day);seedEventsFromFills(w,fills);x.prevPos=snapPos(x);x.prevMarks=snapMarks(x)}));
   S.events.sort((a,b)=>b.t-a.t);
   // demo players' cost basis = backfilled NAV at start of the 24h window (1.00)
@@ -325,7 +346,7 @@ function card(w){
   const x=S.w[w.tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;const sl=x.status==='sleeping';
   const pend=x.pend/Math.max(x.eRef,1);
   return`<div class="card" data-card="${w.tk}" onclick="location.hash='#/w/${w.tk}'">
-   <div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${w.tk}${w.vault?' · vault':''}</div></div><span class="badge ${sl?'b-sleep':'b-live'}">${sl?'😴 SLEEPING':x.status==='loading'?'…':'● LIVE'}</span></div>
+   <div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${w.tk}${w.vault?' · vault':''}${w.testnetOnly?' · testnet':''}</div></div><span class="badge ${sl?'b-sleep':'b-live'}">${sl?'😴 SLEEPING':x.status==='loading'?'…':'● LIVE'}</span></div>
    <div class="row"><div><div class="lbl">Equity</div><div class="val">${usd(x.eq)}</div></div><div style="text-align:right"><div class="lbl">Unsettled (this min)</div><div class="tick1m ${cls(x.pend)}">${x.pend?pct(pend,3)+' · '+usd(x.pend):'—'}</div></div></div>
    <div class="pos">${x.pos.slice(0,2).map(posLine).join('<br>')||'no open positions'}${x.pos.length>2?` <span>+${x.pos.length-2} more</span>`:''}</div>
    ${spark(x)}
@@ -346,7 +367,7 @@ function detail(tk){
   const w=byTk[tk];if(!w)return home();const x=S.w[tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;
   const hT=U.hold[tk+':T'],hF=U.hold[tk+':F'];const q=U.queue.filter(o=>o.tk===tk);
   const hv=(h,s)=>h?`${fmt(h.tok,1)} tok · worth ${fmt(h.tok*nav(x,s),0)} pts <span class="${cls(h.tok*nav(x,s)-h.cost)}">(${pct(h.tok*nav(x,s)/h.cost-1,1)})</span> <a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`:'—';
-  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="https://app.hyperliquid.xyz/explorer/address/${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>orders fill at the next settlement price</small></div></div>
+  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>orders fill at the next settlement price</small></div></div>
   <div class="kp" style="margin-bottom:14px"><div><div class="lbl">Equity (live)</div><div class="big2">${usd(x.eq)}</div></div><div><div class="lbl">Open notional</div><div class="big2">${usd(x.ntl)}</div><small class="note">${x.eq?(x.ntl/x.eq).toFixed(1)+'x effective':''}</small></div><div><div class="lbl">Unsettled PnL (this min)</div><div class="big2 ${cls(x.pend)}">${usd(x.pend)}</div><small class="note">${pct(x.pend/Math.max(x.eRef,1),3)} of E_ref</small></div><div><div class="lbl">24h PnL (HL portfolio)</div><div class="big2 ${cls(x.pnl24)}">${usd(x.pnl24)}</div></div></div>
   <div class="dgrid"><div>
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
@@ -430,7 +451,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>3. r = PnL ÷ whale equity, capped at ±25% per check. The pot moved = r × min(TAIL pot, FADE pot, 25% × whale equity). Winners' token NAV goes up, losers' down. Zero-sum between sides.</p>
 <p>4. Buys/sells queue and fill at the <b>next</b> settlement price, so you can't front-run a candle you already saw.</p>
 <p>5. Wallet owners can opt out by signing a message. Sleeping wallets (no positions) are frozen.</p>
-<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions. The listed whales are flat on testnet, so settlement PnL there is 0. Each side shows a payout multiple from the current pot split. House play points sit on both sides so a one-sided pot still has a counterparty; the house is not on the leaderboard. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
+<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions, except a whale flagged testnet-only (DEMO), whose equity and positions come from the testnet info API. The other listed whales are flat on testnet, so their settlement PnL there is 0. Each side shows a payout multiple from the current pot split. House play points sit on both sides so a one-sided pot still has a counterparty; the house is not on the leaderboard. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
 // ---------- router ----------
 function route(){return(location.hash||'#/').slice(1).split('?')[0]}
 function render(){

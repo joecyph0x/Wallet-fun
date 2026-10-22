@@ -183,8 +183,8 @@
     const notice = document.getElementById("testnetNotice");
     if (notice) {
       notice.textContent = live()
-        ? "TESTNET — you are on the HyperEVM testnet pots. The cards still show Hyperliquid mainnet positions. These whales have no open testnet positions, so settlement PnL is 0."
-        : "TESTNET — these cards show Hyperliquid mainnet positions. Season 0 settles on HyperEVM testnet, where these whales have no open positions, so on-chain PnL is 0. Without a connected wallet the pots on this page are still the browser simulation.";
+        ? "TESTNET — you are on the HyperEVM testnet pots. Curated cards still show mainnet positions, so those settlements stay at PnL 0. Testnet-only whales, such as DEMO, are read from the testnet book the keeper settles."
+        : "TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.";
     }
   }
 
@@ -480,6 +480,7 @@
   window.WW = {
     live, attach, connect, refresh, order, cancel, optOut, paint,
     registryShort() { return configured() ? short(cfg.registry) : "not deployed"; },
+    config() { return cfg; },
   };
   window.optOutWhale = (whale) => optOut(whale);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => attach());

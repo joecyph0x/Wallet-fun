@@ -14,6 +14,11 @@ returns the real bool.
 Refuses every chain id except 998. Sends one addWallet at a time and waits for
 the receipt, so nonces stay in order. Listings are about 470k gas and fit in a
 small block. The registry create does not: do that with big blocks first.
+
+A whale in script/whales.json is listed even when deployments/998.json has no
+row yet, which is how a testnet-only demo whale survives a redeploy. A
+per-whale weightedPerps entry overrides the file default. testnetOnly is copied
+onto the row and does not change the transaction.
 """
 
 from __future__ import annotations
@@ -88,6 +93,32 @@ def _add_wallet(rpc: str, registry: str, key: str, whale: str, ticker: str, name
     )
 
 
+def _perp_for(seed: dict, whale: dict) -> int:
+    own = whale.get("weightedPerps") or seed["weightedPerps"]
+    return int(own[0])
+
+
+def _ensure_row(book: dict, by_ticker: dict, whale: dict, perp: int) -> dict:
+    ticker = whale["ticker"]
+    row = by_ticker.get(ticker)
+    if row is None:
+        row = {
+            "ticker": ticker,
+            "name": whale["name"],
+            "whale": whale["whale"],
+            "market": ZERO,
+            "weightedPerps": [perp],
+            "listError": "",
+        }
+        book["wallets"].append(row)
+        by_ticker[ticker] = row
+    if whale.get("testnetOnly"):
+        row["testnetOnly"] = True
+    row.setdefault("name", whale["name"])
+    row.setdefault("weightedPerps", [perp])
+    return row
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="List Season 0 whales on HyperEVM testnet")
     parser.add_argument("--rpc-url", default=os.environ.get("RPC_URL", RPC_DEFAULT))
@@ -101,11 +132,11 @@ def main() -> None:
     registry = args.registry or book.get("registry") or ""
     if not registry or registry.lower() == ZERO:
         sys.exit("set REGISTRY or put the registry in deployments/998.json")
-    perp = int(seed["weightedPerps"][0])
+    default_perp = int(seed["weightedPerps"][0])
     by_ticker = {row["ticker"]: row for row in book["wallets"]}
 
     if args.dry_run:
-        print(f"dry-run chain 998 registry {registry} weighted perp {perp}")
+        print(f"dry-run chain 998 registry {registry} default weighted perp {default_perp}")
     else:
         chain = _chain_id(args.rpc_url)
         if chain != "998":
@@ -116,27 +147,31 @@ def main() -> None:
 
     for whale in seed["whales"]:
         ticker = whale["ticker"]
+        perp = _perp_for(seed, whale)
         row = by_ticker.get(ticker)
-        if row is None:
-            sys.exit(f"{ticker} is in whales.json but not in deployments/998.json")
+        fresh = row is None
+        row = _ensure_row(book, by_ticker, whale, perp)
         known = row.get("market", ZERO)
+        flag = " testnet-only" if whale.get("testnetOnly") else ""
         if args.dry_run:
             if known and known.lower() != ZERO:
-                print(f"skip {ticker} already listed at {known}")
+                print(f"skip {ticker}{flag} already listed at {known}")
             else:
-                print(f"would addWallet {ticker} {whale['whale']} dex [0] weight [{perp}]")
+                created = " and add a deployment row" if fresh else ""
+                print(f"would addWallet {ticker}{flag} {whale['whale']} dex [0] weight [{perp}]{created}")
             continue
         market = _listed(args.rpc_url, registry, whale["whale"])
         if market.lower() == ZERO:
-            print(f"addWallet {ticker}")
+            print(f"addWallet {ticker}{flag} weight [{perp}]")
             _add_wallet(args.rpc_url, registry, key, whale["whale"], ticker, whale["name"], perp)
             market = _listed(args.rpc_url, registry, whale["whale"])
             if market.lower() == ZERO:
                 sys.exit(f"{ticker} addWallet did not record a market")
         else:
-            print(f"skip {ticker} on-chain market {market}")
+            print(f"skip {ticker}{flag} on-chain market {market}")
         row["market"] = market
         row["whale"] = whale["whale"]
+        row["weightedPerps"] = [perp]
         row["listError"] = ""
 
     if args.write and not args.dry_run:

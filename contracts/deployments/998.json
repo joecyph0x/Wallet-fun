@@ -126,6 +126,18 @@
         4
       ],
       "listError": ""
+    },
+    {
+      "ticker": "DEMO",
+      "name": "Demo Whale",
+      "whale": "0x6dD538C00055D7EA6d451B97a94E463E8Ce89519",
+      "market": "0x759780b5945bB0036b6B403955182B9562Ea6a66",
+      "weightedPerps": [
+        4
+      ],
+      "testnetOnly": true,
+      "listTx": "0x1cde6265ade9aa115d76e7f0ee075a38d203292df31930b235b6dfd5b1d036d8",
+      "listError": ""
     }
   ]
 }

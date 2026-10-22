@@ -34,7 +34,11 @@ contract SeedTest is Season0Test {
         assertEq(vm.parseJsonAddress(raw, ".wallets[0].market"), 0xeFb412210a2162AFa937E59f81dd5B3308308b67);
         assertEq(vm.parseJsonString(raw, ".wallets[10].ticker"), "WYNN");
         assertEq(vm.parseJsonAddress(raw, ".wallets[10].market"), 0x6129B8f52f5c882592830c67B334b310a9E44784);
-        for (uint256 i; i < 11; ++i) {
+        assertEq(vm.parseJsonString(raw, ".wallets[11].ticker"), "DEMO");
+        assertEq(vm.parseJsonAddress(raw, ".wallets[11].whale"), 0x6dD538C00055D7EA6d451B97a94E463E8Ce89519);
+        assertEq(vm.parseJsonAddress(raw, ".wallets[11].market"), 0x759780b5945bB0036b6B403955182B9562Ea6a66);
+        assertTrue(vm.parseJsonBool(raw, ".wallets[11].testnetOnly"));
+        for (uint256 i; i < 12; ++i) {
             string memory market = vm.parseJsonString(raw, string.concat(".wallets[", vm.toString(i), "].market"));
             assertTrue(bytes(market).length == 42);
             assertTrue(keccak256(bytes(market)) != keccak256(bytes("0x0000000000000000000000000000000000000000")));
@@ -43,12 +47,16 @@ contract SeedTest is Season0Test {
 
     function test_seedFileMatchesThePocWallets() public view {
         string memory raw = vm.readFile("script/whales.json");
-        assertEq(vm.parseJsonUint(raw, ".count"), 11);
+        assertEq(vm.parseJsonUint(raw, ".count"), 12);
         assertEq(vm.parseJsonUint(raw, ".chainId"), 998);
         // Testnet meta.universe index 4 is ETH. Mainnet ETH is index 1.
         assertEq(vm.parseJsonUint(raw, ".weightedPerps[0]"), 4);
         assertEq(vm.parseJsonString(raw, ".whales[0].ticker"), "MACHI");
         assertEq(vm.parseJsonString(raw, ".whales[10].ticker"), "WYNN");
+        assertEq(vm.parseJsonString(raw, ".whales[11].ticker"), "DEMO");
+        assertEq(vm.parseJsonAddress(raw, ".whales[11].whale"), 0x6dD538C00055D7EA6d451B97a94E463E8Ce89519);
+        assertTrue(vm.parseJsonBool(raw, ".whales[11].testnetOnly"));
+        assertEq(vm.parseJsonUint(raw, ".whales[11].weightedPerps[0]"), 4);
         assertEq(vm.parseJsonString(raw, ".whales[3].name"), unicode"2 frères 2 fauves");
     }
 
@@ -72,7 +80,7 @@ contract SeedTest is Season0Test {
             assertTrue(market != address(0));
             assertEq(fresh.tickerToWhale(keccak256(bytes(ticker))), who);
         }
-        assertEq(fresh.whaleCount(), 11);
+        assertEq(fresh.whaleCount(), n);
     }
 
     /// @dev The registry constructor deploys the market implementation. Code deposit is
