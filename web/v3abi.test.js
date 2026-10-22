@@ -75,15 +75,30 @@ test("network switch stays on testnet unless mainnet", () => {
   assert.equal(V3.resolve({ network: "mainnet", networks: { mainnet: { chainId: 998, rpcUrl: "x", infoApi: "y" } } }), null);
 });
 
-test("geoblock fails closed and covers territories", () => {
+test("geoblock fails closed on mainnet and stays off on testnet", () => {
   for (const code of ["US", "GB", "UK", "PR", "GU", "VI", "AS", "KY", "GI", "JE", "IM", "GG"]) {
     assert.equal(V3.decideGeo(code).blocked, true, code);
     assert.equal(V3.decideGeo(code).reason, "region");
+    assert.equal(V3.gateGeo("mainnet", code).blocked, true, code);
+    assert.equal(V3.gateGeo("testnet", code).blocked, false, code);
+    assert.equal(V3.gateGeo("testnet", code).reason, "testnet");
   }
+  assert.equal(V3.geoActive("mainnet"), true);
+  assert.equal(V3.geoActive("testnet"), false);
+  assert.equal(V3.geoActive("nope"), false);
+  assert.equal(V3.geoActive(undefined), false);
   assert.equal(V3.decideGeo("DE").blocked, false);
   assert.equal(V3.decideGeo("JP").blocked, false);
+  assert.equal(V3.gateGeo("mainnet", "DE").blocked, false);
+  assert.equal(V3.gateGeo("mainnet", "JP").blocked, false);
   assert.deepEqual(V3.decideGeo(null), { blocked: true, reason: "unknown" });
   assert.deepEqual(V3.decideGeo(""), { blocked: true, reason: "unknown" });
+  assert.deepEqual(V3.gateGeo("mainnet", null), { blocked: true, reason: "unknown" });
+  assert.deepEqual(V3.gateGeo("mainnet", ""), { blocked: true, reason: "unknown" });
+  assert.equal(V3.gateGeo("testnet", null).blocked, false);
+  assert.equal(V3.gateGeo("testnet", "").blocked, false);
+  assert.equal(V3.gateGeo(undefined, "US").blocked, false);
+  assert.ok(V3.TESTNET_GEO_NOTE.includes("UK") && V3.TESTNET_GEO_NOTE.includes("US"));
   assert.equal(V3.parseTrace("fl=1\nloc=GB\nhttp=http/2\n"), "GB");
   assert.equal(V3.parseTrace("colo=IAD\n"), null);
   assert.equal(V3.parseGeoJson({ country: "us" }), "US");
