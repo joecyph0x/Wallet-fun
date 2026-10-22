@@ -1,0 +1,283 @@
+{
+  "chainId": 998,
+  "name": "HyperEVM Testnet",
+  "protocol": "v3",
+  "rpcUrl": "https://rpc.hyperliquid-testnet.xyz/evm",
+  "infoApi": "https://api.hyperliquid-testnet.xyz/info",
+  "explorer": "https://testnet.purrsec.com",
+  "registry": "0x896E8B5952f48205F032224311ba55D5C0a42F3F",
+  "registryLogic": "0xC4C488bF6154604e25F853881ee5d413a69760b7",
+  "registryLogicContract": "WalletRegistryV3Testnet",
+  "marketImplementation": "0x63325B2c55c542e455e2C7337975426F9ba3441B",
+  "beacon": "0xB8E0D34Fa581140d9e04A71aa49bfc77790B0765",
+  "usdc": {
+    "address": "0xAbef3ab9E36a5dC9416981cA29410bdFaA636490",
+    "contract": "TestUSDC",
+    "symbol": "tUSDC",
+    "decimals": 6,
+    "faucet": "faucet(uint256 amount) mints to the caller, or mint(address to, uint256 amount); at most 1,000 tUSDC (1000000000) per call, open to anyone. Testnet only, no value."
+  },
+  "owner": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
+  "guardian": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
+  "feeWallet": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
+  "deployer": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
+  "keeper": "0x69E72845e54680F06b1Fa6a9a4C0E65D15BaF863",
+  "keeperWorker": "https://whalewallet-keeper.joecyph.workers.dev",
+  "epochSec": 600,
+  "feeBps": 50,
+  "maxPotPerSide": "0",
+  "deployTxs": {
+    "TestUSDC": "0x13cc3747e314d681337f0f13fab31700404a853ca6e4a21d5d89cd0303b1701d",
+    "WalletMarketV3": "0xb5af7ee68a19381ef7ca9dbcdda8948eb93292a2c263c95926302b56704712db",
+    "WalletRegistryV3Testnet": "0x4ad6c70d2919cdc3cd338372ad809371d5c6807a5b2d3f9209453f6d68b9a706",
+    "RegistryProxy": "0xef885afd6e7630b11f6c44f6e946762f7fd88304944d40de5b55a1004c9e73c1"
+  },
+  "notes": [
+    "Owner, guardian, and fee wallet are the testnet deployer for now. Mainnet needs a Safe and fresh keys.",
+    "Markets were listed with WalletRegistryV3Testnet.testnetList, which skips the 24h timelock and reverts on any chain except 998. Every other admin path is the unchanged v3 timelock.",
+    "Equity reads spot USDC token 0 (weiDecimals 8, /100) plus dex-0 perp account value. Testnet spotMeta token 0 is USDC with weiDecimals 8, same as mainnet. Testnet ETH is perp 4.",
+    "HLP: the mainnet HLP child vaults (vaultDetails childAddresses) are not HyperCore users on testnet, so addWallet would revert NoCoreUser. HLP is listed as the parent only. The keeper also only builds books for single-member dex-0 markets today.",
+    "xyz (HIP-3) dex is not tracked: dexes=[0]. Not changed here. To check before enabling it: HIP-3 asset ids are documented as 100000 + dexIndex*10000 + i, while Config.dexOf is perp / 10000, so dexOf would return 10 + dexIndex rather than the dex index the margin precompile takes."
+  ],
+  "markets": [
+    {
+      "ticker": "MACHI",
+      "name": "Machi Big Brother",
+      "whale": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+      "market": "0xa91f606e330fe6a000bec3dbded51cd8b550f5af",
+      "members": [
+        "0x020ca66c30bec2c4fe3861a94e4db4a498a35872"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x4451355d900a04a6a2d6732ca6670dd460c3d5c28349a4488e1ef84056bbab0c"
+    },
+    {
+      "ticker": "BOBBY",
+      "name": "BobbyBigSize",
+      "whale": "0x7fdafde5cfb5465924316eced2d3715494c517d1",
+      "market": "0xee7f80c71066266a27b0bfaa611f0ae360bb478d",
+      "members": [
+        "0x7fdafde5cfb5465924316eced2d3715494c517d1"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0xed65dbf54bb140523cf8520e19a90bbede4cbc4009cbcce97cd75fc2152f986b"
+    },
+    {
+      "ticker": "HLP",
+      "name": "HLP Vault",
+      "whale": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
+      "market": "0x0a4566d047837db407d604ac1d2a229190b38a32",
+      "members": [
+        "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x7cbd2525821ce7833dfd1f2afc828de945095cd5273d27dbf18f2722ca71688a"
+    },
+    {
+      "ticker": "FAUVES",
+      "name": "2 fr\u00e8res 2 fauves",
+      "whale": "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
+      "market": "0x182f0fa8e23b9ae9ae438fe0d2ed8e46a73efbe6",
+      "members": [
+        "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x971dce6cf5ce7e02fe487428ed0b9e2cfe91f38594241cf51e7f0617c748b411"
+    },
+    {
+      "ticker": "NMTD",
+      "name": "NMTD",
+      "whale": "0xf517639a8872e756ac98d3c65507d2ebc25cc032",
+      "market": "0x49159739ed5ba3e1a50254648bba377c78fcfe27",
+      "members": [
+        "0xf517639a8872e756ac98d3c65507d2ebc25cc032"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x388d66e27fd95feb561b6d92f576804c67bfa8239494aef21129774553a0345a"
+    },
+    {
+      "ticker": "SILK",
+      "name": "x.com/SilkBtc",
+      "whale": "0x880ac484a1743862989a441d6d867238c7aa311c",
+      "market": "0xae158c9673ee37505502440b0dac17f55cbf43f3",
+      "members": [
+        "0x880ac484a1743862989a441d6d867238c7aa311c"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0xc6888a2bdc8f6c603884584a1eee99fb8337be0678229d4951bec0285aff7e41"
+    },
+    {
+      "ticker": "JEFF",
+      "name": "we love u jeff",
+      "whale": "0x1367df28c0681431b8a8f3d887576a1cad85560e",
+      "market": "0x401bd3430b955b581c3e470739f0c9f307ce89a9",
+      "members": [
+        "0x1367df28c0681431b8a8f3d887576a1cad85560e"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x1217bf1de53e8d3c6be9f41a84b9c8f35092388997db347ca7ca5bdafa693199"
+    },
+    {
+      "ticker": "CATHOT",
+      "name": "cat hot wallet",
+      "whale": "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b",
+      "market": "0x7d9dcada8eb4343c30c0487ca5f5a64d69f1a828",
+      "members": [
+        "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x30c0215baf351968a2fc2599b2bdde609a507e9475a40b19e6edd9e3e9050e80"
+    },
+    {
+      "ticker": "PURRINA",
+      "name": "PURRINA Pro Plan",
+      "whale": "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927",
+      "market": "0xddce12573e659b4a5813dd671af4b6a395c0262a",
+      "members": [
+        "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0xbc19db26425e063fab8ee1d5b921fc1d2029a400e2ab28ca5ab8ef4d45b67c5c"
+    },
+    {
+      "ticker": "FUMBLER",
+      "name": "perpfumbler",
+      "whale": "0x523852be2db1a76a0e088ecbff32e849544054e5",
+      "market": "0x81b7abf9e57df7495a94b06577b50bdc80c58af7",
+      "members": [
+        "0x523852be2db1a76a0e088ecbff32e849544054e5"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0xb75f9a0bd8f57fa185fc03cc07a47ec49853548726cef8cf2a44434b1a3642cf"
+    },
+    {
+      "ticker": "WYNN",
+      "name": "James Wynn",
+      "whale": "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6",
+      "market": "0x3ff4d1f682574b427261dff03267475a6a51573e",
+      "members": [
+        "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0xbbf7d734abe676faa1963c009613349ef5dadc0e003474a3e0be59d41c6a7786"
+    },
+    {
+      "ticker": "DEMO",
+      "name": "Demo Whale",
+      "whale": "0x6dd538c00055d7ea6d451b97a94e463e8ce89519",
+      "market": "0x6512ad0705f4793c5842529b848edcbb8b18a746",
+      "members": [
+        "0x6dd538c00055d7ea6d451b97a94e463e8ce89519"
+      ],
+      "dexes": [
+        0
+      ],
+      "weightedPerps": [
+        4
+      ],
+      "seedPerSide": "50000000",
+      "listTx": "0x5fa244fb2934422404d1576f4a669261e6d5c7ad352cbb7b021071695cd18e2a",
+      "testnetOnly": true
+    }
+  ],
+  "smokeTest": {
+    "date": "2026-10-22",
+    "wallet": "0xC84be14039f1B7120a0A3076551152283a70E057",
+    "market": "DEMO",
+    "steps": {
+      "gas_from_deployer_0.02HYPE": "0x7216103f57cdd4efa560cc7058c29e1b8c4fbfd09bf89edac9fce560f19f1a47",
+      "faucet_1000": "0x1dc3dd0332d02dd83c1b4ca22e391e3615490087eec7b655690f078e89ef8036",
+      "approve": "0xf2025defbcc557cfd19677ee831810d3737cbee7c21a845b29a777cafe42b2c7",
+      "deposit_200": "0xc67c54769e14d13e4371351c9b0783b8d27391cea2dd817cfd7e0240a5cfe999",
+      "buy_TAIL_50": "0x0736743b92bdf9170e13583785a93fa8c08a9c8c50e222e590793b58d6b04f92",
+      "claim": "0xab74d6ac81f4301d8415274ce39bd9bb30eb54ae5b6341600eb995ac5f70432b",
+      "guardian_pause": "0xbc3dc836b94a09fe41f13c38838d14e84084914609583503de9ba74dbe2b3f73",
+      "buy_while_paused": "reverted as expected: {'code': 3, 'message': 'execution reverted', 'data': '0xf7cdbb58'}",
+      "sell_all_TAIL_while_paused": "0xdaa0c5c2b0c879808c31176af004e0aa40f079d4db89ad54d9150636d3a10a71",
+      "withdraw_while_paused": "0xfaac6c4c6e72c0055cfbbf96ed725537b8de54d3cdb344dd6c168b810771efc7",
+      "withdraw_final": "0x345ca009b1a73d4e602f3c13dbc9377fc254af081774ca2b60adf7a9ee3d1199",
+      "guardian_unpause": "0x7045b8ee0732c723077a18463b189add83929aeda0070cd1d6ced9ba94c03cfb"
+    },
+    "result": "1,000 tUSDC in, 999.554123 out after 0.5% buy and sell fees (0.499015 to protocolFees) and +0.05 TAIL PnL. buy reverted BuysPaused while paused; sell, claim and withdraw went through."
+  },
+  "keeperSettleMany": {
+    "firstPassTxs": [
+      "0x399a69fe349ad0f18eb696cc5b5918aa9720d420a861ce000ff54485ba9ad743",
+      "0x891ac4bb77d4652f21b9a8e230f14d3e68a10a97687d0dbb5b27461eb704d922",
+      "0x6ec55ef87f63fd2439d60f1bb2cef656eec674dd011cbf0bd252bc5796591677"
+    ],
+    "steadyPassTxs": [
+      "0x36136846743674b75fea94669e54480eb03b2e9bd1b0ffdc70e61a3299927ad1",
+      "0x4b67a30c832ca1f9799eb59770dec57f2694550bb0acf530c745ff03f29746b0",
+      "0x1e22252ea473dc89cd588c488ae1a06a6b1d55aace1701664f3d1ad812ad5419"
+    ],
+    "demoFillTx": "0x99833bc6081d152f525246f54a331fca9b0e95c856d5971fb00fd23ffc785f98",
+    "gas": "First sample (sets eRef) about 320k per market. Flat whale about 213k per market (850,730 for a batch of 4). DEMO with an open ETH short and a filled order 478,404."
+  }
+}

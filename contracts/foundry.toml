@@ -8,6 +8,9 @@ optimizer_runs = 200
 via_ir = true
 evm_version = "cancun"
 remappings = ["forge-std/=lib/forge-std/src/"]
+# WalletRegistryV3Testnet.testnetList starts with "test", so forge would fuzz it as a test.
+# Only files under test/ are tests.
+no_match_path = "src/**"
 # The deploy script reads the seed file and, only when WRITE_DEPLOYMENT=1,
 # writes the address book the web app and the keeper share.
 fs_permissions = [
