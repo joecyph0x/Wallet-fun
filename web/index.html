@@ -196,7 +196,8 @@ async function getWallet(w){
 function posPnl(prevPos,prevMarks){let p=0;if(!prevPos)return 0;for(const c in prevPos){const m0=prevMarks[c],m1=S.marks[c];if(m0&&m1)p+=prevPos[c]*(m1-m0)}return p}
 function applyR(x,r){const rc=Math.max(-RCAP,Math.min(RCAP,r));const C=Math.min(x.T,x.F,ALPHA*Math.max(x.eRef,1));const d=rc*C;x.T+=d;x.F-=d;return{rc,d,C}}
 const nav=(x,s)=>{const pot=s==='T'?x.T:x.F,sup=s==='T'?x.supT:x.supF;return sup?pot/sup:1};
-window.nav=nav;
+function pays(x,s){const mine=s==='T'?x.T:x.F,all=(+x.T||0)+(+x.F||0);if(!(mine>0))return '—';const m=all/mine;return (m>=100?m.toFixed(0):m.toFixed(1))+'x'}
+window.nav=nav;window.pays=pays;
 function snapPos(x){const o={};for(const p of x.pos)o[p.coin]=p.szi;return o}
 function snapMarks(x){const o={};for(const p of x.pos)o[p.coin]=S.marks[p.coin];return o}
 // backfill sparkline from real portfolio day pnlHistory
@@ -330,6 +331,7 @@ function card(w){
    ${spark(x)}
    <div class="split"><i style="width:${(share*100).toFixed(1)}%"></i></div>
    <div class="tf"><span class="t">TAIL ${tp.toFixed(4)} <small class="${cls(chg(x,'T'))}">${pct(chg(x,'T'),1)}</small></span><span class="f">FADE ${fp.toFixed(4)} <small class="${cls(chg(x,'F'))}">${pct(chg(x,'F'),1)}</small></span></div>
+   <div class="tf" style="font-size:12px"><span class="t">TAIL pays ${pays(x,'T')}</span><span class="f">FADE pays ${pays(x,'F')}</span></div>
    <div class="tf" style="color:var(--mut);font-weight:400;font-size:11px"><span>pot ${fmt(x.T)} pts</span><span>last min ${x.lastR?pct(x.lastR,3):'—'}</span><span>pot ${fmt(x.F)} pts</span></div>
    ${sl?'<div class="sleepov">zzz</div>':''}
   </div>`;
@@ -350,7 +352,8 @@ function detail(tk){
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
    <div class="split" style="height:16px"><i style="width:${(share*100).toFixed(1)}%"></i></div>
    <div class="tf" style="font-size:16px"><span class="t">TAIL-${tk} ${tp.toFixed(4)} · pot ${fmt(x.T)}</span><span class="f">FADE-${tk} ${fp.toFixed(4)} · pot ${fmt(x.F)}</span></div>
-   <p class="note">Sparkline: first ${x.hist.filter(h=>h.bf).length} points backfilled from the wallet's real 24h pnlHistory; then one point per live 1-min settlement.</p></div>
+   <div class="tf" style="font-size:15px"><span class="t">TAIL pays ${pays(x,'T')}</span><span class="f">FADE pays ${pays(x,'F')}</span></div>
+   <p class="note">Pays Nx is both pots divided by this side. One settlement is still capped. Sparkline: first ${x.hist.filter(h=>h.bf).length} points backfilled from the wallet's real 24h pnlHistory; then one point per live 1-min settlement.</p></div>
    <div class="panel" style="margin-top:14px"><h3>Live positions (${x.pos.length})</h3><div class="tblwrap"><table><tr><th>Coin</th><th>Side</th><th>Size</th><th>Notional</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>Lev</th><th>Liq</th></tr>
    ${x.pos.slice(0,25).map(p=>`<tr><td>${esc(p.coin)}${p.dex==='xyz'?' <span class="demo" style="color:var(--c);border-color:#3ee0ff66;background:#3ee0ff18">HIP-3</span>':''}</td><td class="${p.szi>0?'up':'dn'}">${p.szi>0?'LONG':'SHORT'}</td><td>${fmt(Math.abs(p.szi),Math.abs(p.szi)<100?3:0)}</td><td>${usd(p.ntl)}</td><td>${p.entry?fmt(p.entry,p.entry<10?4:2):'-'}</td><td>${S.marks[p.coin]?fmt(S.marks[p.coin],S.marks[p.coin]<10?4:2):'-'}</td><td class="${cls(p.upnl)}">${usd(p.upnl)}</td><td>${p.lev?p.lev+'x '+(p.ltype==='isolated'?'iso':'cross'):'-'}</td><td>${p.liq?fmt(p.liq,p.liq<10?4:2):'-'}</td></tr>`).join('')||'<tr><td colspan=9>😴 no open positions — coin is sleeping</td></tr>'}</table></div>${x.pos.length>25?`<p class="note">showing top 25 of ${x.pos.length} by notional</p>`:''}</div>
   </div><div>
@@ -370,7 +373,7 @@ function leaderboard(){
   const rows=DEMO.map(d=>{let v=0;for(const k in d.h){const[tk,s]=k.split(':');v+=d.h[k]*nav(S.w[tk],s)}const best=Object.keys(d.h).sort((a,b)=>{const f=k=>{const[t,s]=k.split(':');return nav(S.w[t],s)};return f(b)-f(a)})[0];return{n:d.n,demo:1,v,pnl:v-d.cost,roi:v/d.cost-1,best}});
   const uv=U.pts+holdingsValue()+queuedPts();rows.push({n:U.handle+' (you)',you:1,v:uv,pnl:uv-(U.deposited||0),roi:U.deposited?uv/U.deposited-1:0,best:Object.keys(U.hold)[0]||'—'});
   rows.sort((a,b)=>b.roi-a.roi);
-  return`<div class="hero"><div><h1>🏆 Season 0 leaderboard</h1><p>Ranked by ROI on play points. <span class="demo">DEMO</span> players are simulated wallets holding real TAIL/FADE positions in this PoC — their P&amp;L moves with the real 1-minute settlements, but the players are fake.</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div></div></div>
+  return`<div class="hero"><div><h1>🏆 Season 0 leaderboard</h1><p>Ranked by ROI on play points. House seed is not a player and is not ranked. <span class="demo">DEMO</span> players are simulated wallets holding real TAIL/FADE positions in this PoC — their P&amp;L moves with the real 1-minute settlements, but the players are fake.</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div></div></div>
   <div class="panel tblwrap"><table><tr><th>#</th><th>Player</th><th>Best bag</th><th>Value</th><th>P&amp;L</th><th>ROI</th></tr>${rows.map((r,i)=>`<tr class="${r.you?'you':''}"><td>${i<3?['🥇','🥈','🥉'][i]:i+1}</td><td>${esc(r.n)} ${r.demo?'<span class="demo">DEMO</span>':''}</td><td>${r.best&&r.best!=='—'?r.best.replace(/(.*):T/,'TAIL-$1').replace(/(.*):F/,'FADE-$1'):'—'}</td><td>${fmt(r.v,0)}</td><td class="${cls(r.pnl)}">${r.pnl>=0?'+':''}${fmt(r.pnl,0)}</td><td class="${cls(r.roi)}">${pct(r.roi,2)}</td></tr>`).join('')}</table></div>
   <p class="note">Your handle: <b>${esc(U.handle)}</b> · <a href="javascript:resetMe()" style="color:var(--c)">reset my play points</a></p>`;
 }
@@ -427,7 +430,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>3. r = PnL ÷ whale equity, capped at ±25% per check. The pot moved = r × min(TAIL pot, FADE pot, 25% × whale equity). Winners' token NAV goes up, losers' down. Zero-sum between sides.</p>
 <p>4. Buys/sells queue and fill at the <b>next</b> settlement price, so you can't front-run a candle you already saw.</p>
 <p>5. Wallet owners can opt out by signing a message. Sleeping wallets (no positions) are frozen.</p>
-<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions. The listed whales are flat on testnet, so settlement PnL there is 0. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
+<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions. The listed whales are flat on testnet, so settlement PnL there is 0. Each side shows a payout multiple from the current pot split. House play points sit on both sides so a one-sided pot still has a counterparty; the house is not on the leaderboard. Sell returns play points to your balance at the next settlement. There is no cash withdraw.</p></div>`}
 // ---------- router ----------
 function route(){return(location.hash||'#/').slice(1).split('?')[0]}
 function render(){

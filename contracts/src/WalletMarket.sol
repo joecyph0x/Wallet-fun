@@ -12,6 +12,10 @@ import {IRegistry} from "./IRegistry.sol";
 ///         winning side, then fills the queue at the post-settlement NAV.
 ///
 ///         There is no USDC, no ERC-20, and no CoreWriter. Shares cannot be transferred.
+///
+///         Listing mints a house seed onto both sides. Those shares sit at `Season0.HOUSE`.
+///         The house never buys, sells, cancels, or claims. Settlement may move value between
+///         its two sides. It does not receive the trading fee.
 contract WalletMarket {
     enum Side {
         Tail,
@@ -77,6 +81,7 @@ contract WalletMarket {
     error QueueFull();
     error NotYourOrder();
     error AlreadyInit();
+    error HouseInert();
 
     event PositionSampled(
         address indexed member, uint32 indexed perp, int64 szi, uint64 markPx, bool weighted, bool changed
@@ -123,6 +128,7 @@ contract WalletMarket {
     event WeightUpdated(address indexed whale, uint32 perp, bool weighted);
     event MemberAdded(address indexed whale, address indexed member);
     event EpsUpdated(uint256 epsBps);
+    event HouseSeeded(address indexed whale, uint8 side, uint256 points, uint256 shares);
 
     address public registry;
     address public whale;
@@ -313,6 +319,7 @@ contract WalletMarket {
     // ---------------------------------------------------------------- trading
 
     function queueBuy(Side side, uint256 pointsAmount) external nonReentrant returns (uint256 orderId) {
+        if (msg.sender == Season0.HOUSE) revert HouseInert();
         _requireTradingOpen();
         if (status != Status.Active && status != Status.Sleeping) revert Closed();
         if (pointsAmount == 0) revert BadAmount();
@@ -322,6 +329,7 @@ contract WalletMarket {
     }
 
     function queueSell(Side side, uint256 shares) external nonReentrant returns (uint256 orderId) {
+        if (msg.sender == Season0.HOUSE) revert HouseInert();
         _requireTradingOpen();
         if (status == Status.Uninitialized) revert Closed();
         if (shares == 0) revert BadAmount();
@@ -336,6 +344,7 @@ contract WalletMarket {
     }
 
     function cancel(uint256 orderId) external nonReentrant {
+        if (msg.sender == Season0.HOUSE) revert HouseInert();
         if (orderId >= orders.length) revert NotYourOrder();
         Order memory o = orders[orderId];
         if (!o.open || o.user != msg.sender) revert NotYourOrder();
@@ -392,6 +401,38 @@ contract WalletMarket {
 
         _fillQueue();
         _emitSettled(book);
+    }
+
+    // ---------------------------------------------------------------- house
+
+    /// @notice Initial seed. Both sides must be empty. `perSide` points and the same number of shares,
+    ///         so NAV starts at 1. Called by the registry during listing.
+    function openHouse(uint256 perSide) external onlyRegistry {
+        if (tailSupply != 0 || fadeSupply != 0 || tailPot != 0 || fadePot != 0) revert AlreadyInit();
+        if (perSide == 0) return;
+        _mintHouse(Side.Tail, perSide, perSide);
+        _mintHouse(Side.Fade, perSide, perSide);
+    }
+
+    /// @notice Owner top-up, via the registry. While the side has a pot, new shares are minted at the
+    ///         current NAV so player value does not move. A drained side (pot 0) is restarted at 1 point
+    ///         per new share; leftover shares stay and are diluted by that mint.
+    ///         Refused once opt-out has started, so the exit price is not rewritten.
+    function topUpHouse(Side side, uint256 pointsAmount) external onlyRegistry {
+        if (pointsAmount == 0) revert BadAmount();
+        if (status == Status.Uninitialized || status == Status.OptOutPending || status == Status.RedeemOnly) {
+            revert Closed();
+        }
+        uint256 pot = side == Side.Tail ? tailPot : fadePot;
+        uint256 sup = side == Side.Tail ? tailSupply : fadeSupply;
+        uint256 shares;
+        if (pot == 0 || sup == 0) {
+            shares = pointsAmount;
+        } else {
+            shares = pointsAmount * sup / pot;
+            if (shares == 0) revert BadAmount();
+        }
+        _mintHouse(side, pointsAmount, shares);
     }
 
     // ---------------------------------------------------------------- views
@@ -739,5 +780,11 @@ contract WalletMarket {
     function _addShares(Side side, address user, uint256 shares) internal {
         if (side == Side.Tail) tailShares[user] += shares;
         else fadeShares[user] += shares;
+    }
+
+    function _mintHouse(Side side, uint256 pointsAmount, uint256 shares) internal {
+        _addPot(side, pointsAmount, shares);
+        _addShares(side, Season0.HOUSE, shares);
+        emit HouseSeeded(whale, uint8(side), pointsAmount, shares);
     }
 }

@@ -12,7 +12,9 @@ contract RegistryTest is Season0Test {
         vm.prank(alice);
         vm.expectRevert(WalletRegistry.AlreadyClaimed.selector);
         reg.claimSeason0();
-        assertEq(reg.totalMinted(), Season0.START_POINTS * 2);
+        assertEq(reg.totalMinted(), Season0.START_POINTS * 2 + reg.houseMinted());
+        assertEq(reg.houseMinted(), Season0.HOUSE_SEED * 2);
+        assertEq(reg.points(Season0.HOUSE), 0);
     }
 
     function test_randomAddressCannotMovePoints() public {

@@ -9,9 +9,12 @@ import {WalletMarket} from "./WalletMarket.sol";
 /// @title WalletRegistry
 /// @notice whalewallet.fun Season 0 curator, points faucet, and opt-out registry.
 ///
-///         Points enter through a one-time claim of 10,000 play points per address.
-///         There is no other mint, no USDC, no withdraw, and no transferable token.
+///         Player points enter through a one-time claim of 10,000 play points per address.
+///         Listing also mints a house seed into both pots. That mint is `houseMinted`, not a
+///         player balance: `points[HOUSE]` stays zero, and the house cannot claim.
+///         There is no USDC, no withdraw, and no transferable token.
 ///         The 0.5% trading fee is accounted as `protocolFees` and cannot be taken out.
+///         The house does not receive it.
 ///
 ///         Opt-out is an EIP-712 signature from the HyperCore wallet itself:
 ///         OptOut(address wallet), domain name "whalewallet.fun", version "1".
@@ -31,6 +34,8 @@ contract WalletRegistry {
     error AlreadyClaimed();
     error BadSignature();
     error NoCoreUser();
+    error HouseInert();
+    error HouseAmount();
 
     event WalletListed(address indexed whale, address indexed market, string ticker, string name, address[] members);
     event OptedOut(address indexed whale, address indexed submitter);
@@ -41,6 +46,8 @@ contract WalletRegistry {
     event OwnershipTransferStarted(address indexed next);
     event OwnershipTransferred(address indexed owner);
     event GuardianUpdated(address indexed guardian);
+    event HouseSeedUpdated(uint256 perSide);
+    event HouseMinted(address indexed market, uint256 amount);
 
     bytes32 public constant OPT_OUT_TYPEHASH = keccak256("OptOut(address wallet)");
     bytes32 private constant DOMAIN_TYPEHASH =
@@ -57,6 +64,10 @@ contract WalletRegistry {
     uint256 public totalMinted;
     uint256 public inWallets;
     uint256 public protocolFees;
+    /// @dev Points minted into pots for the house. Included in `totalMinted`. Never credited to `points`.
+    uint256 public houseMinted;
+    /// @dev Points per side for the next `addWallet`. Zero lists an empty market.
+    uint256 public houseSeedPerSide;
 
     mapping(address => Listing) public listings;
     mapping(address => bool) public optedOut;
@@ -83,6 +94,7 @@ contract WalletRegistry {
         if (owner_ == address(0) || guardian_ == address(0)) revert NotOwner();
         owner = owner_;
         guardian = guardian_;
+        houseSeedPerSide = Season0.HOUSE_SEED;
         implementation = address(new WalletMarket());
         emit OwnershipTransferred(owner_);
         emit GuardianUpdated(guardian_);
@@ -92,6 +104,7 @@ contract WalletRegistry {
 
     /// @notice One claim of play points per address. This is the only mint.
     function claimSeason0() external {
+        if (msg.sender == Season0.HOUSE) revert HouseInert();
         if (claimed[msg.sender]) revert AlreadyClaimed();
         claimed[msg.sender] = true;
         points[msg.sender] += Season0.START_POINTS;
@@ -143,6 +156,14 @@ contract WalletRegistry {
         market = _clone(implementation);
         isMarket[market] = true;
         WalletMarket(market).initialize(whale, members, ticker, name_, dexes, weightedPerps);
+        uint256 seed = houseSeedPerSide;
+        if (seed != 0) {
+            WalletMarket(market).openHouse(seed);
+            uint256 minted = seed * 2;
+            totalMinted += minted;
+            houseMinted += minted;
+            emit HouseMinted(market, minted);
+        }
 
         listings[whale] = Listing({market: market, whale: whale, active: true});
         tickerToWhale[tick] = whale;
@@ -160,6 +181,23 @@ contract WalletRegistry {
 
     function addMember(address whale, address member) external onlyOwner {
         _market(whale).addMember(member);
+    }
+
+    /// @notice Seed applied to listings created after this call. Does not rewrite markets already listed.
+    function setHouseSeed(uint256 perSide) external onlyOwner {
+        if (perSide > Season0.MAX_HOUSE_POINTS) revert HouseAmount();
+        houseSeedPerSide = perSide;
+        emit HouseSeedUpdated(perSide);
+    }
+
+    /// @notice Mint more house play points onto one side of a live market, at that side's current NAV.
+    function topUpHouse(address whale, WalletMarket.Side side, uint256 pointsAmount) external onlyOwner {
+        if (pointsAmount == 0 || pointsAmount > Season0.MAX_HOUSE_POINTS) revert HouseAmount();
+        WalletMarket market = _market(whale);
+        market.topUpHouse(side, pointsAmount);
+        totalMinted += pointsAmount;
+        houseMinted += pointsAmount;
+        emit HouseMinted(address(market), pointsAmount);
     }
 
     function setEpsBps(address whale, uint256 eps) external onlyOwner {

@@ -123,7 +123,13 @@ contract Season0Test is Test {
     }
 
     function _assertConserved() internal view {
-        assertEq(reg.inWallets() + reg.protocolFees() + market.pointsHeld(), reg.totalMinted(), "points conserved");
+        uint256 held;
+        uint256 n = reg.whaleCount();
+        for (uint256 i; i < n; ++i) {
+            (address m,,) = reg.listings(reg.whales(i));
+            held += WalletMarket(m).pointsHeld();
+        }
+        assertEq(reg.inWallets() + reg.protocolFees() + held, reg.totalMinted(), "points conserved");
     }
 
     function _optOutSig() internal view returns (bytes memory) {

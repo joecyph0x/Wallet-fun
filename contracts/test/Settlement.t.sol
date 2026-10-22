@@ -38,12 +38,13 @@ contract SettlementTest is Season0Test {
         assertEq(market.lastPnl(), 0);
         assertEq(market.lastDelta(), 0);
         assertEq(market.eRef(), 30_000e6);
-        assertEq(market.tailPot(), 9_950e6);
-        assertEq(market.fadePot(), 9_950e6);
+        assertEq(market.tailPot(), Season0.HOUSE_SEED + 9_950e6);
+        assertEq(market.fadePot(), Season0.HOUSE_SEED + 9_950e6);
         assertEq(market.navOf(WalletMarket.Side.Tail), 1e6);
-        // 1 point of each side is locked to address(1).
-        assertEq(market.sharesOf(address(1), WalletMarket.Side.Tail), Season0.MIN_LIQUIDITY);
-        assertEq(market.sharesOf(alice, WalletMarket.Side.Tail), 9_949e6);
+        // The house seed is the counterparty. The empty-side lock at address(1) is not used.
+        assertEq(market.sharesOf(Season0.HOUSE, WalletMarket.Side.Tail), Season0.HOUSE_SEED);
+        assertEq(market.sharesOf(address(1), WalletMarket.Side.Tail), 0);
+        assertEq(market.sharesOf(alice, WalletMarket.Side.Tail), 9_950e6);
         assertEq(reg.protocolFees(), 100e6);
         assertEq(uint256(market.status()), uint256(WalletMarket.Status.Active));
     }
@@ -54,7 +55,7 @@ contract SettlementTest is Season0Test {
         market.queueBuy(WalletMarket.Side.Tail, 5_000e6);
         assertEq(market.orderCount(), 1);
         assertEq(market.sharesOf(alice, WalletMarket.Side.Tail), 0);
-        assertEq(market.tailPot(), 0);
+        assertEq(market.tailPot(), Season0.HOUSE_SEED);
 
         vm.prank(alice);
         vm.expectRevert(WalletMarket.BadAmount.selector);
@@ -99,7 +100,8 @@ contract SettlementTest is Season0Test {
         market.queueSell(WalletMarket.Side.Tail, shares);
         skip(60);
         _settle();
-        assertEq(market.tailSupply(), Season0.MIN_LIQUIDITY);
+        assertEq(market.tailSupply(), market.sharesOf(Season0.HOUSE, WalletMarket.Side.Tail));
+        assertEq(market.sharesOf(Season0.HOUSE, WalletMarket.Side.Tail), Season0.HOUSE_SEED);
         assertGt(market.tailPot(), 0);
         assertEq(market.sharesOf(alice, WalletMarket.Side.Tail), 0);
     }

@@ -2,7 +2,7 @@
 
 Every Hyperliquid wallet is a memecoin. TAIL it or FADE it.
 
-Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. There is no house bankroll, no market making, and no copy-trading.
+Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. There is no copy-trading.
 
 The owner is UK-based. This milestone has no USDC, no transferable token, and no function that turns points into money.
 
@@ -30,7 +30,7 @@ A keeper-supplied asset list is complete only when the sum of `|szi × mark|` si
 
 HIP-3 markets use perp index `dex × 10000 + metaIndex` (`position2` / `markPx`). Dex 0 is on at listing. Other dexes, including trade.xyz, stay off until the curator enables them. Validator perp 1 is ETH on mainnet; xyz:NVDA is index 10002 (`dex 1`, meta `2`).
 
-Settlement is permissionless. It runs when 60 seconds have passed, or sooner when a tracked position's size changes. A mark-only move waits for the heartbeat. Buys and sells then fill at that post-move NAV, so an order queued after the move is already visible does not capture it. The first buy of a side locks 1 point of shares at `address(1)` so an empty side cannot be inflated. The 0.5% fee is accounted as `protocolFees` and has no withdraw path.
+Settlement is permissionless. It runs when 60 seconds have passed, or sooner when a tracked position's size changes. A mark-only move waits for the heartbeat. Buys and sells then fill at that post-move NAV, so an order queued after the move is already visible does not capture it. Listing mints `houseSeedPerSide` play points (default 10,000) onto TAIL and onto FADE, held by `address(2)`. Those shares are not a player balance: they cannot buy, sell, cancel, or claim, and a settlement only moves value the pot math already moves. The owner can `setHouseSeed` for later listings and `topUpHouse` one side of a live market at its current NAV. A side whose pot has been rounded down to zero is restarted by a top-up; opt-out refuses further top-ups so the exit price stays put. The trading fee still goes to `protocolFees` and has no withdraw path. It is not paid to the house. A side listed with a zero seed still locks 1 point at `address(1)` on its first buy. The card shows the pot-split multiple, `(TAIL + FADE) / this side`.
 
 TAIL green is `#39FF88`. FADE pink is `#FF2E88`.
 
@@ -66,7 +66,7 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 ## Front-end
 
-`web/index.html` keeps the Season 0 look. Whale equity, positions, and marks still come from mainnet `api.hyperliquid.xyz`. The eleven listed whales are flat on HyperEVM testnet, so a settlement there has PnL 0 while the cards still show mainnet positions. A testnet bar under the proof-of-concept banner says that on every page.
+`web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Whale equity, positions, and marks still come from mainnet `api.hyperliquid.xyz`. The eleven listed whales are flat on HyperEVM testnet, so a settlement there has PnL 0 while the cards still show mainnet positions. A testnet bar under the proof-of-concept banner says that on every page.
 
 Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry and all 11 market addresses. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
 
@@ -187,12 +187,12 @@ Cold-launch set, from the design doc's self-set names. Re-check them live before
 
 - TAIL and FADE are non-transferable point shares inside the market, not ERC-20s. Season 0 forbids a token.
 - Heartbeat is 60 seconds, plus a settle on position-size change.
-- Pots start empty. The proof-of-concept page seeds demo pots in the browser; the contracts do not. The first buyer of a side locks 1 point of shares, and that point stays locked through opt-out.
+- Pots start with a house seed on both sides. The proof-of-concept page still draws demo pots in the browser until a wallet is connected. The first buyer of an unseeded side locks 1 point of shares, and that point stays locked through opt-out.
 - The daily cap is a signed running sum of applied `r` inside ±50%. A gain later in the day can give back budget that an earlier loss used.
 - Completeness is a two-sided band. The design stated the lower bound. The upper bound rejects a book whose notionals overshoot `ntlPos`.
 - HLP children are a curator member list. Their addresses are not in the design doc, so they are not hardcoded. There is no challenge window yet.
 - HIP-3 dexes default to off. Enabling a dex is an owner call; weighting a perp is a second call. Until a perp is weighted its mark move has zero PnL and it still counts for completeness.
-- No listing fee, no performance skim, no fee split, and no lose-to-earn mint. Points arrive only from the 10,000-point claim. Fees sit in `protocolFees`.
+- No listing fee, no performance skim, no fee split, and no lose-to-earn mint. Player points arrive only from the 10,000-point claim. The house seed is a separate mint into the pots, held at `address(2)`, and it is not a claimable balance. Fees sit in `protocolFees`.
 - No keeper bounty. `Settled` records the caller so a bounty can be paid later from fees.
 - Sleep is automatic when tracked notional is zero. Pause is a separate guardian halt. Cancel still works while paused. Buys wait.
 - Opt-out of an already listed wallet reports `OptedOutAddress` on any future `addWallet`, including while the old market still exists.

@@ -21,7 +21,14 @@ library Season0 {
 
     uint256 internal constant HEARTBEAT = 60;
     uint256 internal constant START_POINTS = 10_000 * UNIT;
-    /// @dev Burned into the zero-side on the first buy so the share price cannot be inflated from nothing.
+    /// @dev Play-point inventory minted to both sides at listing. Not a player balance.
+    uint256 internal constant HOUSE_SEED = 10_000 * UNIT;
+    /// @dev One top-up or a future listing cannot mint more than this on a side.
+    uint256 internal constant MAX_HOUSE_POINTS = 1_000_000 * UNIT;
+    /// @dev Holds house shares. It cannot claim, queue, or cancel. Not a leaderboard player.
+    address internal constant HOUSE = address(2);
+    /// @dev Burned into a side that is still empty so the share price cannot be inflated from nothing.
+    ///      A seeded side never hits this path.
     uint256 internal constant MIN_LIQUIDITY = UNIT;
 
     uint256 internal constant MAX_ASSETS = 64;
