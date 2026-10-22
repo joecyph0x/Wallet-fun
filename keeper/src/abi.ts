@@ -16,3 +16,7 @@ export const settleAbi = [
     outputs: [],
   },
 ] as const;
+
+export const marketViewAbi = [
+  { type: "function", name: "openOrders", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;

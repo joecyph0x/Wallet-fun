@@ -7,7 +7,7 @@
   "scripts": {
     "settle": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/nonce.test.ts"
+    "test": "tsx --test src/nonce.test.ts src/idle.test.ts"
   },
   "dependencies": {
     "viem": "^2.37.5"

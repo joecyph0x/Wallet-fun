@@ -103,7 +103,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 <body>
 <canvas id="bgwaves" aria-hidden="true"></canvas>
 <div class="poc"><div id="pocBanner">PROOF OF CONCEPT — play points, not money. No wallet, or no deployment in deployments.json: pots stay simulated in this browser.</div></div>
-<div class="tn"><div id="testnetNotice">TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.</div></div>
+<div class="tn"><div id="testnetNotice">TESTNET — reading the live HyperEVM testnet pots. Connect a wallet to place orders.</div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
   <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
@@ -308,6 +308,7 @@ async function boot(){
   DEMO.forEach(d=>{d.cost=Object.values(d.h).reduce((a,b)=>a+b,0)});
   for(const w of WALLETS){const x=S.w[w.tk];const live=x.status==='live';if(!live)pushEv({t:Date.now()-1,tk:w.tk,txt:`😴 ${w.name} is SLEEPING — no open positions. Coin frozen until they wake up.`})}
   S.nextSettle=Math.ceil(Date.now()/EPOCH)*EPOCH;
+  if(window.WW)await WW.refresh();
   render();renderTicker();
   setInterval(tick,1000);
   setInterval(()=>pollMarksOnly().then(()=>softRender()),10000);
@@ -318,7 +319,8 @@ async function tick(){
   const left=S.nextSettle-Date.now();
   const s=Math.max(0,Math.ceil(left/1000));const txt=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   $('#cdSmall').textContent=txt;document.querySelectorAll('.cd').forEach(e=>e.textContent=txt);
-  if(left<=0&&!settling){settling=true;try{await pollAll(); if(window.WW&&WW.live()){await WW.refresh();S.nextSettle=Date.now()+15000} else settle()}finally{if(!(window.WW&&WW.live()))S.nextSettle=Math.ceil((Date.now()+500)/EPOCH)*EPOCH;settling=false}}
+  const onChain=window.WW&&(WW.live()||WW.potsLive());
+  if(left<=0&&!settling){settling=true;try{await pollAll(); if(onChain){await WW.refresh();S.nextSettle=Date.now()+15000} else settle()}finally{if(!onChain)S.nextSettle=Math.ceil((Date.now()+500)/EPOCH)*EPOCH;settling=false}}
   updateHeader();
 }
 // ---------- user ----------
@@ -327,6 +329,7 @@ function queuedPts(){return U.queue.filter(o=>o.kind==='buy').reduce((a,o)=>a+o.
 function updateHeader(){
   const m=$('#dataMode');
   if(window.WW&&WW.live()){m.innerHTML=`<span class="dot"></span><span class="live">TESTNET · chain 998</span>`;$('#ptsPill').textContent=`${fmt(U.pts,0)} pts on-chain`;$('#foot').textContent=`registry ${WW.registryShort()} · pots, points and orders are HyperEVM testnet · whale positions on the cards are Hyperliquid mainnet · play points, no cash value`;WW.paint();return}
+  if(window.WW&&WW.potsLive()){m.innerHTML=`<span class="dot"></span><span class="live">TESTNET · chain 998</span>`;$('#ptsPill').textContent=`${fmt(U.pts,0)} pts`;$('#foot').textContent=`registry ${WW.registryShort()} · pots are the live HyperEVM testnet · connect a wallet to trade · whale positions on the cards are Hyperliquid mainnet · play points, no cash value`;WW.paint();return}
   m.innerHTML=S.mode==='live'?`<span class="dot"></span><span class="live">DEMO · simulated pots</span>`:S.mode==='snapshot'?`<span class="snap">⚠ SNAPSHOT ${new Date(SNAP.ts).toLocaleString('en-GB')}</span>`:'connecting…';
   $('#ptsPill').textContent=`${fmt(U.pts,0)} pts`;
   $('#foot').textContent=`data: ${S.mode} · last poll ${S.lastPoll?hhmm(S.lastPoll):'-'} · ${liveOK} API calls ok / ${liveFail} failed · settlement every ${EPOCH/1000}s · α=${ALPHA} · cap ±${RCAP*100}%/check`;
@@ -334,6 +337,7 @@ function updateHeader(){
 }
 function order(tk,side,kind){
   if(window.WW&&WW.live())return WW.order(tk,side,kind);
+  if(window.WW&&WW.potsLive()){toast('Connect a wallet on HyperEVM testnet (chain 998) to place an order.');return}
   const x=S.w[tk];if(x.status!=='live'){toast('😴 Sleeping coin — trading frozen');return}
   if(kind==='buy'){const amt=Math.floor(+$('#amt').value||0);if(amt<=0)return toast('enter an amount');if(amt>U.pts)return toast('not enough play points 🫠');U.pts-=amt;U.queue.push({tk,side,kind,amt,t:Date.now()});toast(`⏳ Queued: ${fmt(amt)} pts → ${side==='T'?'TAIL':'FADE'}-${tk}. Fills at next settlement price.`)}
   else{const h=U.hold[tk+':'+side];if(!h)return toast('nothing to sell');U.queue.push({tk,side,kind,tok:h.tok,t:Date.now()});toast(`⏳ Queued sell of all ${side==='T'?'TAIL':'FADE'}-${tk} at next settlement`)}
@@ -459,7 +463,8 @@ function home(){
 }
 function detail(tk){
   const w=byTk[tk];if(!w)return home();const x=S.w[tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;
-  const hT=U.hold[tk+':T'],hF=U.hold[tk+':F'];const q=U.queue.filter(o=>o.tk===tk);
+  const chainView=window.WW&&WW.potsLive()&&!WW.live();
+  const hT=chainView?null:U.hold[tk+':T'],hF=chainView?null:U.hold[tk+':F'];const q=chainView?[]:U.queue.filter(o=>o.tk===tk);
   const hv=(h,s)=>h?`${fmt(h.tok,1)} tok · worth ${fmt(h.tok*nav(x,s),0)} pts <span class="${cls(h.tok*nav(x,s)-h.cost)}">(${pct(h.tok*nav(x,s)/h.cost-1,1)})</span> <a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`:'—';
   return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>orders fill at the next settlement price</small></div></div>
   <div class="kp" style="margin-bottom:14px"><div><div class="lbl">Equity (live)</div><div class="big2">${usd(x.eq)}</div></div><div><div class="lbl">Open notional</div><div class="big2">${usd(x.ntl)}</div><small class="note">${x.eq?(x.ntl/x.eq).toFixed(1)+'x effective':''}</small></div><div><div class="lbl">Unsettled PnL (this min)</div><div class="big2 ${cls(x.pend)}">${usd(x.pend)}</div><small class="note">${pct(x.pend/Math.max(x.eRef,1),3)} of E_ref</small></div><div><div class="lbl">24h PnL (HL portfolio)</div><div class="big2 ${cls(x.pnl24)}">${usd(x.pnl24)}</div></div></div>
@@ -546,7 +551,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>3. r = PnL ÷ whale equity, capped at ±25% per check. The pot moved = r × min(TAIL pot, FADE pot, 25% × whale equity). Winners' token NAV goes up, losers' down. Zero-sum between sides.</p>
 <p>4. Buys/sells queue and fill at the <b>next</b> settlement price, so you can't front-run a candle you already saw.</p>
 <p>5. Wallet owners can opt out by signing a message. Sleeping wallets (no positions) are frozen.</p>
-<p class="note">With no wallet, pots and points stay in this browser even though the testnet registry is deployed. Connect on HyperEVM testnet (chain 998) and the same screen reads pots, your points and your orders from the contracts. The cards still show Hyperliquid <b>mainnet</b> positions, except a whale flagged testnet-only (DEMO), whose equity and positions come from the testnet info API. The other listed whales are flat on testnet, so their settlement PnL there is 0. Each side shows a payout multiple from the current pot split. House play points sit on both sides so a one-sided pot still has a counterparty; the house is not on the leaderboard. Sell returns play points to your balance at the next settlement. There is no cash withdraw. Copy the whale opens that coin on Hyperliquid in the same direction. It does not place the order.</p></div>`}
+<p class="note">Pots on this page are read from HyperEVM testnet (chain 998) with no wallet. Connect a wallet to claim play points and place orders. If that read fails, the pots fall back to the browser simulation and the banner says so. The cards still show Hyperliquid <b>mainnet</b> positions, except a whale flagged testnet-only (DEMO), whose equity and positions come from the testnet info API. The other listed whales are flat on testnet, so their settlement PnL there is 0. Each side shows a payout multiple from the current pot split. House play points sit on both sides so a one-sided pot still has a counterparty; the house is not on the leaderboard. Sell returns play points to your balance at the next settlement. There is no cash withdraw. Copy the whale opens that coin on Hyperliquid in the same direction. It does not place the order.</p></div>`}
 // ---------- router ----------
 function route(){return(location.hash||'#/').slice(1).split('?')[0]}
 function render(){

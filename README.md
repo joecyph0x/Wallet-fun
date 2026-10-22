@@ -38,8 +38,9 @@ TAIL green is `#39FF88`. FADE pink is `#FF2E88`.
 
 ```
 contracts/   Foundry: registry, market, precompile reader, tests, testnet deploy script
-keeper/      TypeScript skeleton that calls settle on HyperEVM testnet (chain id 998)
-web/         Static Season 0 front-end PoC (local points, live Hyperliquid info API)
+keeper/         Box keeper. A Node process that calls settle on HyperEVM testnet (chain id 998)
+keeper-worker/ Cloudflare Worker cron that does the same settle, built for the free plan
+web/           Static Season 0 front-end (live testnet pots, Hyperliquid info API)
 ```
 
 `WalletRegistry` is the curator, the points faucet, and the opt-out registry. `WalletMarket` is cloned per wallet and holds the pots, the queue, and `settle`. `HyperCoreReader` matches the [hyper-evm-lib](https://github.com/hyperliquid-dev/hyper-evm-lib) encodings for `position2` (`0x0813`), `markPx` (`0x0806`), `accountMarginSummary` (`0x080F`), `coreUserExists` (`0x0810`), and `l1BlockNumber` (`0x0809`). Tests etch a mock at those addresses, so `forge test` does not need a fork.
@@ -68,7 +69,7 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 `web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from `infoApi` in `contracts/deployments/998.json` (`https://api.hyperliquid-testnet.xyz/info`) instead, including its marks, so that card matches the book the keeper settles. The public whales stay on mainnet: they are flat on testnet, and switching every card would blank the page. DEMO is the testnet-only whale.
 
-Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry, the market addresses, and any `testnetOnly` flag. A wallet in that file that the page does not already know is added to the grid. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
+Pots are read from the public testnet RPC for every visitor. No wallet is required to see them. The wallet is required to claim points and to queue a buy or a sell. If the RPC read fails, or the node reports a chain id other than 998, the page keeps the in-browser simulation and the yellow banner says so. Points in the browser stay in `localStorage` until that wallet is connected. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry, the market addresses, and any `testnetOnly` flag. A wallet in that file that the page does not already know is added to the grid. The public page does not send transactions by itself.
 
 ```bash
 cd web && python3 -m http.server 8080
@@ -76,7 +77,7 @@ cd web && python3 -m http.server 8080
 
 Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
 
-A missing file, a rejected connection, or no injected wallet leaves the simulated demo running.
+A missing deployment file leaves the simulated demo running. A rejected connection stays on the read-only pots. No injected wallet can still see the pots; it just cannot trade.
 
 ### Copy the whale
 
@@ -103,7 +104,9 @@ Real money needs legal advice before any of those lines is switched on. The owne
 
 `keeper/` reads every wallet in `contracts/deployments/998.json`, including a testnet-only demo whale. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is that whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
 
-Settles in one tick run one after another, and a new tick waits if the previous one is still going. The keeper keeps a local nonce cursor: it reads the node's pending nonce only when the cursor is empty, then increments locally. The testnet RPC's pending count lags a transaction that was just submitted, and re-reading it made the next `settle` reuse a nonce (`nonce too low`). A nonce error clears the cursor and retries that settle once. Any other reject puts the unused nonce back. `npm test` covers the cursor.
+Settles in one tick run one after another, and a new tick waits if the previous one is still going. The keeper keeps a local nonce cursor: it reads the node's pending nonce only when the cursor is empty, then increments locally. The testnet RPC's pending count lags a transaction that was just submitted, and re-reading it made the next `settle` reuse a nonce (`nonce too low`). A nonce error clears the cursor and retries that settle once. Any other reject puts the unused nonce back.
+
+A flat whale is not settled every minute. With `SKIP_IDLE=1` (the default), a market whose whale has no open positions, the same account value as the last settle this process sent, and `openOrders == 0` is settled only every `IDLE_HEARTBEAT_SEC` (default 600) as a heartbeat. A queued order, a changed account value, an unreadable `openOrders`, or the first settle still goes out on the normal 60 second heartbeat. `MIN_GAS_HYPE` (default `0.005`) pauses sends and logs `LOW_GAS` when the keeper's HYPE balance is below that. `npm test` covers the nonce cursor and this idle rule.
 
 ```bash
 cd keeper
@@ -112,6 +115,32 @@ npm run typecheck
 npm run settle                                         # dry-run, prints calls
 KEEPER_PRIVATE_KEY=0x... npm run settle                # broadcasts. Never commit the key.
 ```
+
+## Cloudflare Worker keeper
+
+`keeper-worker/` is the same settle loop as a Cloudflare Worker, so it keeps running without a box. A cron trigger fires every minute (`* * * * *`). Each run checks `eth_chainId` and refuses anything other than 998, including mainnet 999, before it sends. It reads markets from the v2 registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5`, then `lastSettleTs`, `openOrders`, `lastEquity`, and `lastNtlPos` on each market, plus the testnet info API for positions and account value.
+
+Idle skip matches the box keeper, without Workers KV. A flat whale (no open positions), an account value that still equals on-chain `lastEquity`, and `openOrders == 0` is settled only every `IDLE_HEARTBEAT_SEC` (default 600). State is derived from those chain fields and the info API. Free KV allows 1,000 writes a day, and a write every minute would be 1,440, so this worker does not use KV. The last `/health` report is in-memory only. A cold isolate has no last run; `wrangler tail` is the log.
+
+There is no batch `settle` on `WalletMarket`. Signing each transaction is the CPU cost, so a run sends at most `MAX_TX_PER_RUN` (default 2) and rotates. Queued orders are first, then a whale that just opened or closed a position, then the oldest `lastSettleTs`. Queued orders do not bypass the contract's 60 second `TooEarly` check, so a one-minute cron is the same fill granularity the chain already has. Sub-minute fills are not available unless a position size changes, and the cron will catch that on its next minute. JSON-RPC batches are at most 20 calls. The pending nonce is read at the start of every run and then incremented locally for the second transaction. Gas is set to 400,000 so the worker does not call `eth_estimateGas`, and it does not wait for a receipt. Below `MIN_GAS_HYPE` (default 0.005 HYPE) it logs `LOW_GAS` and sends nothing.
+
+`GET /health` returns JSON: last run time, keeper address, balance, markets settled, and errors. It does not return the key.
+
+The free plan allows 10ms of CPU per invocation (network wait does not count), 50 subrequests, and 100,000 requests a day. This cron is 1,440 requests a day. A quiet run with the current 12 markets is about 20 subrequests and zero transactions. A busy run adds at most 2 `eth_sendRawTransaction` calls, so the cap is 2 transactions per minute. Flat whales settle only every 10 minutes, so a quiet hour is well under that. A local Node 22 timing of the CPU-heavy part, a warmed viem legacy signature, was about 0.4ms per transaction and about 1.6ms for two. Deriving the keeper address was about 0.3ms and is cached in the isolate. The rest of a run is network wait plus small JSON and ABI decode, so a run should land around a few milliseconds, under the 10ms cap. That number is not a Cloudflare trace. If a cron is killed for CPU, set `MAX_TX_PER_RUN` to `"1"`. If many whales are active at once and the dashboard still shows headroom, raise it. The paid plan lifts the 10ms cap.
+
+Do not put `KEEPER_PRIVATE_KEY` in `wrangler.toml` or the repo. The non-secret vars live in `[vars]`: `CHAIN_ID`, `RPC_URL`, `INFO_API`, `REGISTRY`, `MIN_GAS_HYPE`, `IDLE_HEARTBEAT_SEC`, `HEARTBEAT_SEC`, `MAX_TX_PER_RUN`.
+
+```bash
+cd keeper-worker
+npm install
+npm test
+npm run typecheck
+npx wrangler secret put KEEPER_PRIVATE_KEY   # paste the 0x key when prompted. Never commit it.
+npx wrangler deploy                           # needs a Cloudflare login. Not run from CI.
+npx wrangler tail                             # LOW_GAS, [sent], [due], [error]
+```
+
+Fund the keeper address with a little testnet HYPE before the first cron. `GET /health` on the workers.dev host shows the address and balance.
 
 ## Deploy
 
