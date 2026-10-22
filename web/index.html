@@ -446,7 +446,6 @@ function card(w){
    <div class="tf" style="font-size:12px"><span class="t">TAIL pays ${pays(x,'T')}</span><span class="f">FADE pays ${pays(x,'F')}</span></div>
    <div class="tf" style="color:var(--mut);font-weight:400;font-size:11px"><span>pot ${fmt(x.T)} pts</span><span>last min ${x.lastR?pct(x.lastR,3):'—'}</span><span>pot ${fmt(x.F)} pts</span></div>
    ${sl?'<div class="sleepov">zzz</div>':''}
-   <button type="button" class="copybtn" data-copy="${w.tk}" onclick="event.stopPropagation();openCopy('${w.tk}')">Copy the whale</button>
   </div>`;
 }
 function home(){

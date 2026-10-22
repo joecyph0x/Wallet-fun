@@ -80,7 +80,7 @@ A missing file, a rejected connection, or no injected wallet leaves the simulate
 
 ### Copy the whale
 
-Each card and each wallet page has **Copy the whale**. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a Season 0 play-point order. A flat book says there is nothing to copy.
+The coin trade screen has **Copy the whale**. The home cards do not. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a Season 0 play-point order. A flat book says there is nothing to copy.
 
 The button does not sign a HyperCore action. This page is a static file with no bundler. An order signature is the L1 phantom-agent EIP-712 (an msgpack hash of the action, domain `Exchange`, chain id 1337), not the EVM transaction path in `chain.js`. A mistaken signer can hit mainnet. Season 0 must not submit orders, and the builder address in config is the zero address.
 
