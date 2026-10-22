@@ -6,10 +6,13 @@ so coreUserExists is false there and addWallet never broadcasts. cast send does
 not simulate those reads: the transaction runs on chain 998, where the precompile
 returns the real bool.
 
-    export DEPLOYER_PRIVATE_KEY=0x...    # never commit this
+    export ETH_PRIVATE_KEY=0x...        # cast reads this. Never commit it.
     cd contracts
-    python3 script/list_whales.py --dry-run
+    python3 script/list_whales.py --dry-run   # listings() on chain 998, no send
     python3 script/list_whales.py --write
+
+DEPLOYER_PRIVATE_KEY is accepted too and is copied into ETH_PRIVATE_KEY for the
+cast process. The key is never placed on the cast command line.
 
 Refuses every chain id except 998. Sends one addWallet at a time and waits for
 the receipt, so nonces stay in order. Listings are about 470k gas and fit in a
@@ -38,14 +41,15 @@ RPC_DEFAULT = "https://rpc.hyperliquid-testnet.xyz/evm"
 
 
 def _redact(text: str) -> str:
-    key = os.environ.get("DEPLOYER_PRIVATE_KEY", "")
-    if key:
-        text = text.replace(key, "[redacted]")
+    for name in ("DEPLOYER_PRIVATE_KEY", "ETH_PRIVATE_KEY"):
+        key = os.environ.get(name, "")
+        if key:
+            text = text.replace(key, "[redacted]")
     return text
 
 
-def _cast(args: list[str]) -> str:
-    proc = subprocess.run(args, check=False, text=True, capture_output=True)
+def _cast(args: list[str], env: dict[str, str] | None = None) -> str:
+    proc = subprocess.run(args, check=False, text=True, capture_output=True, env=env)
     if proc.returncode != 0:
         sys.stderr.write(_redact(proc.stderr or proc.stdout))
         raise SystemExit(proc.returncode)
@@ -72,7 +76,17 @@ def _listed(rpc: str, registry: str, whale: str) -> str:
     return market
 
 
+def _broadcast_key() -> str:
+    key = os.environ.get("ETH_PRIVATE_KEY") or os.environ.get("DEPLOYER_PRIVATE_KEY") or ""
+    if not key:
+        sys.exit("ETH_PRIVATE_KEY is required to broadcast")
+    return key
+
+
 def _add_wallet(rpc: str, registry: str, key: str, whale: str, ticker: str, name: str, perp: int) -> None:
+    env = os.environ.copy()
+    env["ETH_PRIVATE_KEY"] = key
+    # cast reads ETH_PRIVATE_KEY. Do not pass --private-key: it shows up in the process list.
     _cast(
         [
             "cast",
@@ -87,9 +101,8 @@ def _add_wallet(rpc: str, registry: str, key: str, whale: str, ticker: str, name
             f"[{perp}]",
             "--rpc-url",
             rpc,
-            "--private-key",
-            key,
-        ]
+        ],
+        env,
     )
 
 
@@ -135,15 +148,14 @@ def main() -> None:
     default_perp = int(seed["weightedPerps"][0])
     by_ticker = {row["ticker"]: row for row in book["wallets"]}
 
+    chain = _chain_id(args.rpc_url)
+    if chain != "998":
+        sys.exit(f"refusing chain id {chain}; listing is HyperEVM testnet only")
+    key = ""
     if args.dry_run:
-        print(f"dry-run chain 998 registry {registry} default weighted perp {default_perp}")
+        print(f"dry-run chain {chain} registry {registry} default weighted perp {default_perp}")
     else:
-        chain = _chain_id(args.rpc_url)
-        if chain != "998":
-            sys.exit(f"refusing chain id {chain}; listing is HyperEVM testnet only")
-        key = os.environ.get("DEPLOYER_PRIVATE_KEY", "")
-        if not key:
-            sys.exit("DEPLOYER_PRIVATE_KEY is required to broadcast")
+        key = _broadcast_key()
 
     for whale in seed["whales"]:
         ticker = whale["ticker"]
@@ -151,16 +163,16 @@ def main() -> None:
         row = by_ticker.get(ticker)
         fresh = row is None
         row = _ensure_row(book, by_ticker, whale, perp)
-        known = row.get("market", ZERO)
         flag = " testnet-only" if whale.get("testnetOnly") else ""
+        # Ask the registry. A market address left in the file from an older deploy is not a listing.
+        market = _listed(args.rpc_url, registry, whale["whale"])
         if args.dry_run:
-            if known and known.lower() != ZERO:
-                print(f"skip {ticker}{flag} already listed at {known}")
-            else:
+            if market.lower() == ZERO:
                 created = " and add a deployment row" if fresh else ""
                 print(f"would addWallet {ticker}{flag} {whale['whale']} dex [0] weight [{perp}]{created}")
+            else:
+                print(f"skip {ticker}{flag} on-chain market {market}")
             continue
-        market = _listed(args.rpc_url, registry, whale["whale"])
         if market.lower() == ZERO:
             print(f"addWallet {ticker}{flag} weight [{perp}]")
             _add_wallet(args.rpc_url, registry, key, whale["whale"], ticker, whale["name"], perp)

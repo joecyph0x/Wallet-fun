@@ -11,11 +11,11 @@
     "symbol": "HYPE",
     "decimals": 18
   },
-  "registry": "0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9",
-  "implementation": "0xa1e336F6616C8c753774e40C1aC3e3851761A4E9",
+  "registry": "0x9A00D44E7564004f8557bf7a780793c546ccd4a5",
+  "implementation": "0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d",
   "deployer": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
-  "deployedAt": 1792629161,
-  "note": "Written by DeploySeason0 (registry) + addWallet via cast on-chain (forge simulation has no HyperCore precompiles). A zero market means that wallet was not listed.",
+  "deployedAt": 1792635480,
+  "note": "Registry from DeploySeason0. Markets from list_whales.py (cast send on chain 998). Forge simulation has no HyperCore precompiles, so listing is not part of the forge script.",
   "builder": {
     "address": "0x0000000000000000000000000000000000000000",
     "feeBps": 5,
@@ -28,8 +28,8 @@
     {
       "ticker": "MACHI",
       "name": "Machi Big Brother",
-      "whale": "0x020cA66C30beC2c4Fe3861a94E4DB4A498A35872",
-      "market": "0xeFb412210a2162AFa937E59f81dd5B3308308b67",
+      "whale": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+      "market": "0x08ACeA438F93ff816C4ACA733F89667752DD9B8c",
       "weightedPerps": [
         4
       ],
@@ -38,8 +38,8 @@
     {
       "ticker": "BOBBY",
       "name": "BobbyBigSize",
-      "whale": "0x7fDaFdE5cFb5465924316eCED2d3715494c517D1",
-      "market": "0x8410F9C7509A87043D70eF9c42408CAc4fa7cC9a",
+      "whale": "0x7fdafde5cfb5465924316eced2d3715494c517d1",
+      "market": "0x0aeFE1f1d097e1D0178510c110cD045ea91f6D62",
       "weightedPerps": [
         4
       ],
@@ -48,8 +48,8 @@
     {
       "ticker": "HLP",
       "name": "HLP Vault",
-      "whale": "0xdfc24b077bc1425AD1DEA75bCB6f8158E10Df303",
-      "market": "0xebB7B5bAAb0ae5B140aab25Aad20fbb5BBe1f129",
+      "whale": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
+      "market": "0x337ce7f4FDEFaad4516820aA44cab332A2Cb3926",
       "weightedPerps": [
         4
       ],
@@ -57,9 +57,9 @@
     },
     {
       "ticker": "FAUVES",
-      "name": "2 frères 2 fauves",
-      "whale": "0x49E96E255bA418d08E66c35b588E2f2F3766E1d0",
-      "market": "0x08744b688664283b76fE57b8377A8609bfE7dAB7",
+      "name": "2 fr\u00e8res 2 fauves",
+      "whale": "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
+      "market": "0xd17c7f34B1fF54e00c20Dde5C164afF3eB97C9A7",
       "weightedPerps": [
         4
       ],
@@ -68,8 +68,8 @@
     {
       "ticker": "NMTD",
       "name": "NMTD",
-      "whale": "0xF517639a8872E756Ac98d3C65507d2eBc25cc032",
-      "market": "0x3062c7dfc11b0ADaa3A6152E44963C16aE0139B2",
+      "whale": "0xf517639a8872e756ac98d3c65507d2ebc25cc032",
+      "market": "0xeD9fA5d874EA0f540533AbDeB8a6ed29eECbe170",
       "weightedPerps": [
         4
       ],
@@ -78,8 +78,8 @@
     {
       "ticker": "SILK",
       "name": "x.com/SilkBtc",
-      "whale": "0x880ac484a1743862989A441D6d867238c7AA311C",
-      "market": "0x2D9A57226CA35101e550B18868dEC9415B913136",
+      "whale": "0x880ac484a1743862989a441d6d867238c7aa311c",
+      "market": "0x9b4699A593A215E7899B8f0ADFFBdBC1fABaa30B",
       "weightedPerps": [
         4
       ],
@@ -88,8 +88,8 @@
     {
       "ticker": "JEFF",
       "name": "we love u jeff",
-      "whale": "0x1367df28c0681431B8A8f3D887576A1cAD85560e",
-      "market": "0x085264208c54B0f5a9F1d41Da42846C9A65F41C1",
+      "whale": "0x1367df28c0681431b8a8f3d887576a1cad85560e",
+      "market": "0xad33Cd7596291d4C392befA2D8C4Be279F87672D",
       "weightedPerps": [
         4
       ],
@@ -98,8 +98,8 @@
     {
       "ticker": "CATHOT",
       "name": "cat hot wallet",
-      "whale": "0xcb58B8f5EC6D47985f0728465C25a08EF9Ad2C7B",
-      "market": "0x06E7Fd04f1E6f6195Fae648A317A5DBbEB882229",
+      "whale": "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b",
+      "market": "0x9ADcB2FEBCE18C67C65cc3920252dAbdd56c6C22",
       "weightedPerps": [
         4
       ],
@@ -108,8 +108,8 @@
     {
       "ticker": "PURRINA",
       "name": "PURRINA Pro Plan",
-      "whale": "0x0871deb34BFd2052b1c10dC4f6c0912A2A47e927",
-      "market": "0xa18094757D0B6DdCcDB8B6B55556d8654930769a",
+      "whale": "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927",
+      "market": "0x361838AEAFF887911734F8F6648DD96008225017",
       "weightedPerps": [
         4
       ],
@@ -118,8 +118,8 @@
     {
       "ticker": "FUMBLER",
       "name": "perpfumbler",
-      "whale": "0x523852BE2db1a76a0e088EcBFf32e849544054e5",
-      "market": "0x1Ad8408d0FB57666b4483C18B90c2d83Ac21Cd9b",
+      "whale": "0x523852be2db1a76a0e088ecbff32e849544054e5",
+      "market": "0x7F495eCAb0216f6A7314A3fbC6496C4d7184fD07",
       "weightedPerps": [
         4
       ],
@@ -128,8 +128,8 @@
     {
       "ticker": "WYNN",
       "name": "James Wynn",
-      "whale": "0x5078C2fBeA2b2aD61bc840Bc023E35Fce56BeDb6",
-      "market": "0x6129B8f52f5c882592830c67B334b310a9E44784",
+      "whale": "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6",
+      "market": "0xc8Ed33C46Fa9F1E343C442A3532fd39DC9995394",
       "weightedPerps": [
         4
       ],
@@ -138,8 +138,8 @@
     {
       "ticker": "DEMO",
       "name": "Demo Whale",
-      "whale": "0x6dD538C00055D7EA6d451B97a94E463E8Ce89519",
-      "market": "0x759780b5945bB0036b6B403955182B9562Ea6a66",
+      "whale": "0x6dd538c00055d7ea6d451b97a94e463e8ce89519",
+      "market": "0x41Fdb4AAbA614655AEE5d63762681AEE2B4F494A",
       "weightedPerps": [
         4
       ],

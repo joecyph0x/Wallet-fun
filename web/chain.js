@@ -99,10 +99,12 @@
     return body.result;
   }
 
+  // The testnet RPC rejects a JSON-RPC batch above 20 ("Exceeded max limit of 20").
   async function batch(items) {
     const out = new Array(items.length);
-    for (let i = 0; i < items.length; i += 24) {
-      const slice = items.slice(i, i + 24);
+    const limit = 20;
+    for (let i = 0; i < items.length; i += limit) {
+      const slice = items.slice(i, i + limit);
       const payload = slice.map((it, j) => ({
         jsonrpc: "2.0", id: j, method: "eth_call", params: [{ to: it.to, data: it.data }, "latest"],
       }));

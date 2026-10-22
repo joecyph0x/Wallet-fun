@@ -55,15 +55,56 @@ contract DeploySeason0 is Script {
         }
     }
 
-    /// @dev Patches the registry, implementation, and deployer. Leaves wallet rows alone,
-    ///      so a re-run cannot wipe market addresses that list_whales.py already recorded.
+    /// @dev Patches the registry, implementation, deployer, and deployedAt. Leaves wallet
+    ///      rows alone, so a re-run cannot wipe market addresses that list_whales.py recorded.
+    ///      deployedAt is the script block timestamp, so a fresh deploy stamps the file.
     function _writeRegistry(WalletRegistry reg, address deployer) internal {
         string memory path = "deployments/998.json";
         string memory raw = vm.readFile(path);
         raw = _replaceAddress(raw, "registry", address(reg));
         raw = _replaceAddress(raw, "implementation", reg.implementation());
         raw = _replaceAddress(raw, "deployer", deployer);
+        raw = replaceUint(raw, "deployedAt", block.timestamp);
         vm.writeFile(path, raw);
+    }
+
+    /// @dev Replaces the decimal after `"key": ` (or the compact `"key":`). Digit length may change.
+    function replaceUint(string memory raw, string memory key, uint256 value) public pure returns (string memory) {
+        bytes memory data = bytes(raw);
+        bytes memory needle = bytes(string.concat('"', key, '": '));
+        bytes memory compact = bytes(string.concat('"', key, '":'));
+        uint256 at = _find(data, needle);
+        uint256 width = needle.length;
+        if (at == type(uint256).max) {
+            at = _find(data, compact);
+            width = compact.length;
+        }
+        require(at != type(uint256).max, key);
+        uint256 start = at + width;
+        uint256 stop = start;
+        while (stop < data.length && data[stop] >= hex"30" && data[stop] <= hex"39") {
+            stop++;
+        }
+        require(stop > start, "num");
+        return string(_splice(data, start, stop, bytes(vm.toString(value))));
+    }
+
+    function _splice(bytes memory data, uint256 start, uint256 stop, bytes memory insert)
+        internal
+        pure
+        returns (bytes memory out)
+    {
+        out = new bytes(data.length - (stop - start) + insert.length);
+        uint256 o;
+        for (uint256 i; i < start; ++i) {
+            out[o++] = data[i];
+        }
+        for (uint256 i; i < insert.length; ++i) {
+            out[o++] = insert[i];
+        }
+        for (uint256 i = stop; i < data.length; ++i) {
+            out[o++] = data[i];
+        }
     }
 
     function _replaceAddress(string memory raw, string memory key, address value)

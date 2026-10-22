@@ -121,7 +121,7 @@ The script does not list wallets. Forge simulates it on a local EVM, and that si
 
 HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit was `0x2dc6c0`, which is that cap. The registry constructor also creates the market implementation. That runtime is 17,409 bytes, so its code deposit alone is 200 × 17,409 = 3,481,800 gas, which `test_registryCreationNeedsABigBlock` locks. The deploy transaction has to land in a big block (30,000,000 gas). Foundry also applies that 3,000,000 cap during simulation, so the script command needs `--disable-block-gas-limit` or the constructor runs out of gas before anything is broadcast. The init code is about 25KB, under the 49,152-byte init-code limit, and the market runtime is under the 24,576-byte contract limit. Each listing is about 470k gas and fits in a small block.
 
-Season 0 is deployed on HyperEVM testnet. Registry `0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9`, implementation `0xa1e336F6616C8c753774e40C1aC3e3851761A4E9`, deployer `0xFfFC0719380a4d500C3373A26BE1f273bD7C1468`. Explorer: <https://testnet.purrsec.com>. The eleven market addresses are in `contracts/deployments/998.json`.
+Season 0 v2 (house-seeded pots) is deployed on HyperEVM testnet. Registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5`, implementation `0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d`, deployer `0xFfFC0719380a4d500C3373A26BE1f273bD7C1468`. Explorer: <https://testnet.purrsec.com>. The twelve market addresses, including DEMO, are in `contracts/deployments/998.json`. The v1 registry `0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9` and its markets are retired. `DeploySeason0` writes `deployedAt` from the script block timestamp.
 
 1. Create a throwaway key. Do not commit it and do not print it.
 
@@ -164,9 +164,10 @@ Season 0 is deployed on HyperEVM testnet. Registry `0xcA309d8D1Ecd81d85D968CF313
 
    That submits `{"type":"evmUserModify","usingBigBlocks":false}`.
 
-7. List the whales on chain. The script reads `script/whales.json`, including a `testnetOnly` demo whale, and creates a missing row in `deployments/998.json` instead of stopping. A per-whale `weightedPerps` overrides the file default (DEMO is testnet ETH, index 4). `--dry-run` sends nothing and writes nothing. `--write` broadcasts `addWallet` for any whale that is not listed on the current registry, then records the market addresses. After a redeploy the old market address is ignored: the script asks the new registry.
+7. List the whales on chain. The script reads `script/whales.json`, including a `testnetOnly` demo whale, and creates a missing row in `deployments/998.json` instead of stopping. A per-whale `weightedPerps` overrides the file default (DEMO is testnet ETH, index 4). `--dry-run` calls `listings(address)` on the current registry and prints the result. It does not trust a market address left in the file, it sends nothing, and it writes nothing. `--write` broadcasts `addWallet` only when that call returns the zero address, then records the market. The key is `ETH_PRIVATE_KEY` in the environment. `DEPLOYER_PRIVATE_KEY` is copied into that variable for the cast process. It is not passed as `--private-key`.
 
    ```bash
+   export ETH_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
    python3 script/list_whales.py --dry-run
    python3 script/list_whales.py --write
    ```

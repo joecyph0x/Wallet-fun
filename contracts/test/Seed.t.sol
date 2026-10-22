@@ -24,19 +24,30 @@ contract SeedTest is Season0Test {
         deploy.assertTestnet();
     }
 
+    function test_deployScriptStampsDeployedAtOfEitherLength() public {
+        DeploySeason0 deploy = new DeploySeason0();
+        string memory raw = '{"deployedAt": 1, "registry": "0x0000000000000000000000000000000000000001"}';
+        assertEq(
+            deploy.replaceUint(raw, "deployedAt", 1792635480),
+            '{"deployedAt": 1792635480, "registry": "0x0000000000000000000000000000000000000001"}'
+        );
+        assertEq(deploy.replaceUint('{"deployedAt":1792629161}', "deployedAt", 10), '{"deployedAt":10}');
+    }
+
     function test_deploymentFileHasTheTestnetAddresses() public view {
         string memory raw = vm.readFile("deployments/998.json");
         assertEq(vm.parseJsonUint(raw, ".chainId"), 998);
-        assertEq(vm.parseJsonAddress(raw, ".registry"), 0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9);
-        assertEq(vm.parseJsonAddress(raw, ".implementation"), 0xa1e336F6616C8c753774e40C1aC3e3851761A4E9);
+        assertEq(vm.parseJsonAddress(raw, ".registry"), 0x9A00D44E7564004f8557bf7a780793c546ccd4a5);
+        assertEq(vm.parseJsonAddress(raw, ".implementation"), 0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d);
         assertEq(vm.parseJsonAddress(raw, ".deployer"), 0xFfFC0719380a4d500C3373A26BE1f273bD7C1468);
+        assertEq(vm.parseJsonUint(raw, ".deployedAt"), 1792635480);
         assertEq(vm.parseJsonString(raw, ".wallets[0].ticker"), "MACHI");
-        assertEq(vm.parseJsonAddress(raw, ".wallets[0].market"), 0xeFb412210a2162AFa937E59f81dd5B3308308b67);
+        assertEq(vm.parseJsonAddress(raw, ".wallets[0].market"), 0x08ACeA438F93ff816C4ACA733F89667752DD9B8c);
         assertEq(vm.parseJsonString(raw, ".wallets[10].ticker"), "WYNN");
-        assertEq(vm.parseJsonAddress(raw, ".wallets[10].market"), 0x6129B8f52f5c882592830c67B334b310a9E44784);
+        assertEq(vm.parseJsonAddress(raw, ".wallets[10].market"), 0xc8Ed33C46Fa9F1E343C442A3532fd39DC9995394);
         assertEq(vm.parseJsonString(raw, ".wallets[11].ticker"), "DEMO");
         assertEq(vm.parseJsonAddress(raw, ".wallets[11].whale"), 0x6dD538C00055D7EA6d451B97a94E463E8Ce89519);
-        assertEq(vm.parseJsonAddress(raw, ".wallets[11].market"), 0x759780b5945bB0036b6B403955182B9562Ea6a66);
+        assertEq(vm.parseJsonAddress(raw, ".wallets[11].market"), 0x41Fdb4AAbA614655AEE5d63762681AEE2B4F494A);
         assertTrue(vm.parseJsonBool(raw, ".wallets[11].testnetOnly"));
         assertEq(vm.parseJsonAddress(raw, ".builder.address"), address(0));
         assertEq(vm.parseJsonUint(raw, ".builder.feeBps"), 5);
