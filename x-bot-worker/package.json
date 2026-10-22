@@ -5,7 +5,7 @@
   "description": "Season 0 X bot for @whalewalletbot. Reads mainnet positions and drafts posts. No signing.",
   "type": "module",
   "scripts": {
-    "test": "tsx --test src/events.test.ts src/rate.test.ts src/templates.test.ts src/oauth.test.ts src/chain.test.ts src/run.test.ts",
+    "test": "tsx --test src/events.test.ts src/rate.test.ts src/templates.test.ts src/oauth.test.ts src/chain.test.ts src/run.test.ts src/sources.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"

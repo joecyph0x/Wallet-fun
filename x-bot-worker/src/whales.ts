@@ -8,12 +8,14 @@ export type Whale = {
   ticker: string;
   whale: string;
   market: string;
+  /** A vault parent (HLP). Positions are read from its child vaults and netted. */
+  vault?: boolean;
 };
 
 export const WHALES: readonly Whale[] = [
   { ticker: "MACHI", whale: "0x020ca66c30bec2c4fe3861a94e4db4a498a35872", market: "0x08ACeA438F93ff816C4ACA733F89667752DD9B8c" },
   { ticker: "BOBBY", whale: "0x7fdafde5cfb5465924316eced2d3715494c517d1", market: "0x0aeFE1f1d097e1D0178510c110cD045ea91f6D62" },
-  { ticker: "HLP", whale: "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303", market: "0x337ce7f4FDEFaad4516820aA44cab332A2Cb3926" },
+  { ticker: "HLP", whale: "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303", market: "0x337ce7f4FDEFaad4516820aA44cab332A2Cb3926", vault: true },
   { ticker: "FAUVES", whale: "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0", market: "0xd17c7f34B1fF54e00c20Dde5C164afF3eB97C9A7" },
   { ticker: "NMTD", whale: "0xf517639a8872e756ac98d3c65507d2ebc25cc032", market: "0xeD9fA5d874EA0f540533AbDeB8a6ed29eECbe170" },
   { ticker: "SILK", whale: "0x880ac484a1743862989a441d6d867238c7aa311c", market: "0x9b4699A593A215E7899B8f0ADFFBdBC1fABaa30B" },
