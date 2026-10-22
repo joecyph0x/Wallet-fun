@@ -2,7 +2,9 @@
 
 Every Hyperliquid wallet is a memecoin. TAIL it or FADE it.
 
-Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. Copy the whale is a link to Hyperliquid, not an order from this site.
+The site targets the v3 USDC markets. Addresses are read from `contracts/deployments/testnet-v3.json`, which the page loads as `config/testnet-v3.json`. `network` is the only chain switch: it stays `"testnet"` (HyperEVM 998) until someone sets `"mainnet"` (999). The testnet registry, tUSDC, and twelve markets in that file are the chain 998 deploy. Mainnet registry and markets stay zero until that deploy. The page does not read the v2 registry. No keys belong in that file.
+
+Season 0 on the deployed v2 contracts is still play points. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. Copy the whale is a link to Hyperliquid, not an order from this site.
 
 The owner is UK-based. This milestone has no USDC, no transferable token, and no function that turns points into money. Copy the whale only opens the Hyperliquid trade page. It does not send an order.
 
@@ -67,21 +69,24 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 ## Front-end
 
-`web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from `infoApi` in `contracts/deployments/998.json` (`https://api.hyperliquid-testnet.xyz/info`) instead, including its marks, so that card matches the book the keeper settles. The public whales stay on mainnet: they are flat on testnet, and switching every card would blank the page. DEMO is the testnet-only whale.
+`web/index.html` keeps the Season 0 look: TAIL `#39FF88`, FADE `#FF2E88`, the wave background, and Copy the whale only on the coin trade screen. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from the active network's `infoApi` instead. DEMO is the testnet-only whale and is listed only on the testnet side of the v3 config.
 
-Pots are read from the public testnet RPC for every visitor. No wallet is required to see them. The wallet is required to claim points and to queue a buy or a sell. If the RPC read fails, or the node reports a chain id other than 998, the page keeps the in-browser simulation and the yellow banner says so. Points in the browser stay in `localStorage` until that wallet is connected. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry, the market addresses, and any `testnetOnly` flag. A wallet in that file that the page does not already know is added to the grid. The public page does not send transactions by itself.
+v3 pots are read from the public RPC for every visitor. No wallet is required to see them. The wallet is required to approve tUSDC, deposit into the registry, and commit a TAIL or FADE bet. A commit fills at next settle (~10–20 min), with a 10 USDC minimum and one pending order per wallet. Cancel before that settle keeps the 0.5% fee. Buy, sell, and Claim all sample the market when the epoch is due, then apply the caller's fill. If the RPC read fails, or the node reports a chain id other than the config's, the page keeps the in-browser preview and the yellow banner says so. `web/config/testnet-v3.json` is a symlink to `contracts/deployments/testnet-v3.json`. A wallet in the active network that the page does not already know is added to the grid. A zero address is still a placeholder. Mainnet registry, beacon, market implementation, and markets are still zero.
+
+The Balance screen approves USDC and then deposits it. Withdraw uses the registry balance and stays available while buys are paused. On testnet, Get test USDC calls `faucet(amount)` on tUSDC (`0xAbef3ab9E36a5dC9416981cA29410bdFaA636490`), at most 1,000 tUSDC (`1000000000`) per call. `mint(to, amount)` has the same cap. Mainnet has no faucet. A pause disables buys only. After 72 hours the coin screen offers pro-rata redeem at the last NAV. Visitors in GB, the UK, the US, and their territories cannot connect or bet. The check tries `/cdn-cgi/trace`, then `get.geojs.io`, then `api.country.is`. If every lookup fails, connecting and betting stay off. Browsing stays open. Season 0 points accrue on real volume and could count toward a possible future airdrop. Nothing is promised.
 
 ```bash
+node --test web/v3abi.test.js
 cd web && python3 -m http.server 8080
 ```
 
-Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
+Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on the configured chain, the page asks it to switch, and adds that chain when the wallet does not know it. Testnet is 998. Mainnet is 999, and only the `network` field selects it. On a filled-in deployment the page reads pots, NAV, withdrawable USDC, TAIL and FADE shares, and the pending commit. Buy calls `buy`, sell calls `sell`, cancel calls `cancel`, and Claim calls `claim`. Each of those can lazy-settle. Deposit calls `deposit` after `approve`. Withdraw calls `withdraw`. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature with domain version `3` and submits it. The signature only works from the whale's own key.
 
-A missing deployment file leaves the simulated demo running. A rejected connection stays on the read-only pots. No injected wallet can still see the pots; it just cannot trade.
+A missing config, or a config that is still placeholders, leaves the browser preview running. A rejected connection stays on the read-only pots. No injected wallet can still see the pots; it just cannot trade. The v2 file `web/deployments.json` is not what this page reads.
 
 ### Copy the whale
 
-The coin trade screen has **Copy the whale**. The home cards do not. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a Season 0 play-point order. A flat book says there is nothing to copy.
+The coin trade screen has **Copy the whale**. The home cards do not, and neither does the Balance screen. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a USDC bet placed by this site. A flat book says there is nothing to copy.
 
 The button does not sign a HyperCore action. This page is a static file with no bundler. An order signature is the L1 phantom-agent EIP-712 (an msgpack hash of the action, domain `Exchange`, chain id 1337), not the EVM transaction path in `chain.js`. A mistaken signer can hit mainnet. Season 0 must not submit orders, and the builder address in config is the zero address.
 
@@ -98,7 +103,7 @@ Season 0 earns nothing. Points are play money, the builder address is a placehol
 3. **Paid or featured listings.** A later season could charge to list or pin a wallet. Season 0 listings are free and curated.
 4. **Sponsorships.** A ticker, a card, or the share image could carry a sponsor. None are sold in Season 0.
 
-Real money needs legal advice before any of those lines is switched on. The owner is in the UK. A paid product has to geoblock the UK and the US, and it is not offered to UK or US persons.
+Real money needs legal advice before any of those lines is switched on. The owner is in the UK. The site blocks connecting and betting in the UK, the US, and their territories. Browsing stays open.
 
 ## Keeper
 
@@ -195,6 +200,8 @@ Forge gas on the mock precompiles, which cost about 33k more than the documented
 At 0.1 gwei and a settle every 10 minutes (144 batches a day), 11 markets that all fill cost about `507,000 * 11 * 144 * 1e-10 = 0.080` HYPE/day. Eleven empty buckets cost about 0.066 HYPE/day. A 5-minute cron would be about 0.16 HYPE/day, which misses the target, so the worker uses 10 minutes. Four markets fit in one small block: the transaction gas limit is `100,000 + n * 650,000`, at most 2,700,000. Eleven markets are three transactions. The keeper pays that. A user's own buy or sell is separate and is well under 0.0001 HYPE.
 
 `test/v3/V3.t.sol` ports the six v2 attacks. Same-transaction fill does not mint. Settle gas after 1,280 orders does not grow. Dust and a crowd of real orders do not block a sell. Pause does not block a sell or a withdrawal. An instant `setWeighted` reverts, and the move still pays. A 256-run fuzz checks `USDC.balanceOf(registry) == liabilities()` after buys, cancels, sells, and price moves, which is the same statement as "sum of claims cannot exceed USDC held."
+
+The site reads those calls from `config/testnet-v3.json`. It stays on testnet until `network` is `mainnet`. The testnet addresses in that file are the chain 998 deploy. It does not read `web/deployments.json` or the v2 registry.
 
 ## X bot
 
@@ -299,7 +306,7 @@ The eleven public whales have no open testnet positions, so those settlements mo
 
 ## GitHub Pages
 
-`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, and a real copy of `deployments.json` (`cp -L`, because the symlink points outside `web/`). It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
+`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, `v3abi.js`, and a real copy of `config/testnet-v3.json` (`cp -L`, because the symlink points outside `web/`). It does not publish `web/deployments.json`. It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
 
 Cold-launch set, from the design doc's self-set names. Re-check them live before listing. HLP's child addresses are not hardcoded; add them with `addMember` after reading `vaultDetails`.
 
