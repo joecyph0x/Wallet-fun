@@ -1,0 +1,15 @@
+{
+  "chainId": 998,
+  "rpcUrl": "https://rpc.hyperliquid-testnet.xyz/evm",
+  "heartbeatSec": 60,
+  "pollSec": 15,
+  "infoApi": "https://api.hyperliquid-testnet.xyz/info",
+  "wallets": [
+    {
+      "ticker": "MACHI",
+      "market": "0x0000000000000000000000000000000000000000",
+      "user": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+      "assets": [{ "memberIndex": 0, "perp": 1, "symbol": "ETH" }]
+    }
+  ]
+}

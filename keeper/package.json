@@ -1,0 +1,20 @@
+{
+  "name": "@whalewallet/keeper",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Season 0 keeper skeleton for whalewallet.fun. Calls settle on HyperEVM testnet.",
+  "type": "module",
+  "scripts": {
+    "settle": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/nonce.test.ts"
+  },
+  "dependencies": {
+    "viem": "^2.37.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

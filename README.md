@@ -1,1 +1,234 @@
-# Wallet-fun
+# whalewallet.fun
+
+Every Hyperliquid wallet is a memecoin. TAIL it or FADE it.
+
+Season 0 is play points only. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. Copy the whale is a link to Hyperliquid, not an order from this site.
+
+The owner is UK-based. This milestone has no USDC, no transferable token, and no function that turns points into money. Copy the whale only opens the Hyperliquid trade page. It does not send an order.
+
+## Mechanic
+
+For each tracked perp, using raw precompile integers:
+
+```
+pricePnl = Σ szi_prev × (mark_now − mark_prev)
+```
+
+`szi` is size × 10^szDecimals and `markPx` is price × 10^(6 − szDecimals), so the product is already 6-decimal USD. Deposits, withdrawals, funding, and fees do not enter the number.
+
+```
+r        = clamp(pricePnl / eRef, −25%, +25%)   and inside a signed ±50% UTC-day budget
+capacity = min(TAIL pot, FADE pot, 25% × eRef)
+delta    = r × capacity
+TAIL pot += delta
+FADE pot −= delta
+```
+
+`eRef` is account value summed across the listing's members and enabled perp dexes, snapshotted at listing and again on the first settlement of each UTC day. The sample that crosses midnight still uses the previous `eRef`. A wallet whose reference equity is zero starts being measured the same day it shows equity. A positive reference is not rewritten mid-day, so a withdrawal cannot inflate `r`.
+
+A keeper-supplied asset list is complete only when the sum of `|szi × mark|` sits within ±1% of `ntlPos` (owner-tunable from 0.10% to 5%). Missing or extra notionals revert, and anyone can resubmit the full list. Assets on an enabled dex with PnL weight off still count toward that check and toward the `weightedNtl` field on `Settled`.
+
+HIP-3 markets use perp index `dex × 10000 + metaIndex` (`position2` / `markPx`). Dex 0 is on at listing. Other dexes, including trade.xyz, stay off until the curator enables them. Validator perp 1 is ETH on mainnet; xyz:NVDA is index 10002 (`dex 1`, meta `2`).
+
+Settlement is permissionless. It runs when 60 seconds have passed, or sooner when a tracked position's size changes. A mark-only move waits for the heartbeat. Buys and sells then fill at that post-move NAV, so an order queued after the move is already visible does not capture it. Listing mints `houseSeedPerSide` play points (default 10,000) onto TAIL and onto FADE, held by `address(2)`. Those shares are not a player balance: they cannot buy, sell, cancel, or claim, and a settlement only moves value the pot math already moves. The owner can `setHouseSeed` for later listings and `topUpHouse` one side of a live market at its current NAV. A side whose pot has been rounded down to zero is restarted by a top-up; opt-out refuses further top-ups so the exit price stays put. The trading fee still goes to `protocolFees` and has no withdraw path. It is not paid to the house. A side listed with a zero seed still locks 1 point at `address(1)` on its first buy. The card shows the pot-split multiple, `(TAIL + FADE) / this side`.
+
+TAIL green is `#39FF88`. FADE pink is `#FF2E88`.
+
+## Layout
+
+```
+contracts/   Foundry: registry, market, precompile reader, tests, testnet deploy script
+keeper/      TypeScript skeleton that calls settle on HyperEVM testnet (chain id 998)
+web/         Static Season 0 front-end PoC (local points, live Hyperliquid info API)
+```
+
+`WalletRegistry` is the curator, the points faucet, and the opt-out registry. `WalletMarket` is cloned per wallet and holds the pots, the queue, and `settle`. `HyperCoreReader` matches the [hyper-evm-lib](https://github.com/hyperliquid-dev/hyper-evm-lib) encodings for `position2` (`0x0813`), `markPx` (`0x0806`), `accountMarginSummary` (`0x080F`), `coreUserExists` (`0x0810`), and `l1BlockNumber` (`0x0809`). Tests etch a mock at those addresses, so `forge test` does not need a fork.
+
+Points enter through one `claimSeason0()` of 10,000 points per address. That is the only mint. 1 point = 1e6 base units, the same scale as precompile USD, which is how the 25% equity cap compares pots to a whale's account. It is not a redemption rate.
+
+Opt-out is EIP-712 from the HyperCore wallet. The typed data is `OptOut(address wallet)` with domain name `whalewallet.fun`, version `1`, and the registry as `verifyingContract`. Queued buys refund immediately, the next settlement is the last PnL sample, and then the market only fills sells at the frozen NAV. The address cannot be listed again.
+
+A listing can name up to eight members (the wallet plus subaccounts or HLP children). Season 0 has no challenge window on member changes; the curator is trusted for that.
+
+`Settled`, `PositionSampled`, `WhaleAwake`, `WhaleAsleep`, `OrderFilled`, and `OptedOut` are the indexer and X-bot feed.
+
+## Run the tests
+
+[Foundry](https://book.getfoundry.sh/getting-started/installation) is required. `forge-std` is vendored under `contracts/lib`.
+
+```bash
+make test
+# or
+cd contracts && forge test -vv
+```
+
+CI runs that same command. It does not run the deploy script and it does not talk to HyperEVM.
+
+## Front-end
+
+`web/index.html` keeps the Season 0 look. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. It updates when the pots move, in the browser simulation and on testnet. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from `infoApi` in `contracts/deployments/998.json` (`https://api.hyperliquid-testnet.xyz/info`) instead, including its marks, so that card matches the book the keeper settles. The public whales stay on mainnet: they are flat on testnet, and switching every card would blank the page. DEMO is the testnet-only whale.
+
+Pots and points stay in `localStorage` until a wallet is connected on chain 998. `web/deployments.json` is a symlink to `contracts/deployments/998.json`, which holds the deployed registry, the market addresses, and any `testnetOnly` flag. A wallet in that file that the page does not already know is added to the grid. A missing wallet still leaves the simulated demo running. The public page does not send transactions by itself.
+
+```bash
+cd web && python3 -m http.server 8080
+```
+
+Connect uses an injected wallet (`window.ethereum`: MetaMask, Rabby, and the like). If the wallet is not on chain 998, the page asks it to switch, and adds HyperEVM testnet when the wallet does not know the chain. On testnet the page reads pots, NAV, your points, your TAIL and FADE shares, and the last settlement from the contracts. Buy calls `queueBuy`, sell calls `queueSell`, cancel calls `cancel`, and Claim calls `claimSeason0`. Sell is how points come back to your balance at the next settlement. There is no cash withdraw. Opt-out asks the connected wallet for the EIP-712 `OptOut` signature and submits it. The signature only works from the whale's own key.
+
+A missing file, a rejected connection, or no injected wallet leaves the simulated demo running.
+
+### Copy the whale
+
+Each card and each wallet page has **Copy the whale**. It lists up to three of that wallet's largest positions by notional. The user picks one and a small USD size (25, 50, 100, or their own). The confirm screen shows the coin, the same direction (long or short), that size, the whale's leverage, and the builder fee on file. It says this is not financial advice, that the size can be lost, and that the trade is not a Season 0 play-point order. A flat book says there is nothing to copy.
+
+The button does not sign a HyperCore action. This page is a static file with no bundler. An order signature is the L1 phantom-agent EIP-712 (an msgpack hash of the action, domain `Exchange`, chain id 1337), not the EVM transaction path in `chain.js`. A mistaken signer can hit mainnet. Season 0 must not submit orders, and the builder address in config is the zero address.
+
+After confirm, the page opens the coin's trade page in a new tab. A `testnetOnly` whale uses `https://app.hyperliquid-testnet.xyz/trade/{coin}`. Every other whale uses `https://app.hyperliquid.xyz/trade/{coin}`, which is where that coin exists. The coin is limited to letters, digits, and `:._-`. A HIP-3 name such as `xyz:NVDA` keeps the colon. The link cannot set size or leverage. The confirm screen is what the user copies onto Hyperliquid's ticket. No builder fee is charged.
+
+Next step, testnet first. The user signs `approveBuilderFee` once, with the main wallet rather than an API agent. The action is `hyperliquidChain: "Testnet"`, `maxFeeRate` from config (`"0.05%"`), the builder address, and a nonce, posted to `https://api.hyperliquid-testnet.xyz/exchange`. Later orders add `builder: {"b": "<address>", "f": 50}`. `f` is tenths of a basis point, so 50 is 5 bps (0.05%), and it must be within the approved max. Hyperliquid caps perp builder fees at 0.1% (f = 100) and requires the builder to hold at least 100 USDC of perps account value. Replace the placeholder address before any of that is wired. Talk to mainnet only after the legal review in Monetisation. The approved max is the info request `{"type":"maxBuilderFee","user":"0x…","builder":"0x…"}`.
+
+## Monetisation
+
+Season 0 earns nothing. Points are play money, the builder address is a placeholder, and this site does not sell a listing or a sponsorship.
+
+1. **Pot fees (main).** `FEE_BPS` is 50, so 0.5% of a filled buy stays in `protocolFees`. There is no withdraw function in Season 0.
+2. **Builder-code copy trades.** A user who copies a whale can approve a max builder fee once (`approveBuilderFee`). Orders sent for them can then carry `builder: {b, f}`, with `f` in tenths of a basis point (`f` 50 = 5 bps). Config is the `builder` object in `contracts/deployments/998.json`: placeholder address `0x0000…0000`, `feeBps` 5, `f` 50, `maxFeeRate` `"0.05%"`, `hyperliquidChain` `"Testnet"`. The button above does not attach that fee yet.
+3. **Paid or featured listings.** A later season could charge to list or pin a wallet. Season 0 listings are free and curated.
+4. **Sponsorships.** A ticker, a card, or the share image could carry a sponsor. None are sold in Season 0.
+
+Real money needs legal advice before any of those lines is switched on. The owner is in the UK. A paid product has to geoblock the UK and the US, and it is not offered to UK or US persons.
+
+## Keeper
+
+`keeper/` reads every wallet in `contracts/deployments/998.json`, including a testnet-only demo whale. It calls `settle` every 60 seconds, and sooner when the testnet info API shows a position-size change. The asset list is that whale's open validator perps (`meta.universe` index, so testnet ETH is 4). A zero market address is skipped. A flat book is settled with an empty asset list. Chain id other than 998 is refused.
+
+Settles in one tick run one after another, and a new tick waits if the previous one is still going. The keeper keeps a local nonce cursor: it reads the node's pending nonce only when the cursor is empty, then increments locally. The testnet RPC's pending count lags a transaction that was just submitted, and re-reading it made the next `settle` reuse a nonce (`nonce too low`). A nonce error clears the cursor and retries that settle once. Any other reject puts the unused nonce back. `npm test` covers the cursor.
+
+```bash
+cd keeper
+npm install
+npm run typecheck
+npm run settle                                         # dry-run, prints calls
+KEEPER_PRIVATE_KEY=0x... npm run settle                # broadcasts. Never commit the key.
+```
+
+## Deploy
+
+Testnet only. `DeploySeason0` reverts unless `block.chainid` is 998. It deploys the registry and, with `WRITE_DEPLOYMENT=1`, patches the `registry`, `implementation`, and `deployer` fields in `contracts/deployments/998.json`. It leaves the `wallets` array alone. `REGISTRY=0x...` skips the create. The script is not executed by `forge test` or CI.
+
+The script does not list wallets. Forge simulates it on a local EVM, and that simulator has no HyperCore precompiles, so a `coreUserExists` check inside the script is false for every address (`NoCoreUser`) and `addWallet` is never broadcast. Listing is `contracts/script/list_whales.py`. That sends `addWallet` with `cast` on chain 998, one transaction at a time, waiting for the receipt. On chain the precompile returns the real bool.
+
+HyperEVM small blocks are 3,000,000 gas. The latest testnet block's gas limit was `0x2dc6c0`, which is that cap. The registry constructor also creates the market implementation. That runtime is 17,409 bytes, so its code deposit alone is 200 × 17,409 = 3,481,800 gas, which `test_registryCreationNeedsABigBlock` locks. The deploy transaction has to land in a big block (30,000,000 gas). Foundry also applies that 3,000,000 cap during simulation, so the script command needs `--disable-block-gas-limit` or the constructor runs out of gas before anything is broadcast. The init code is about 25KB, under the 49,152-byte init-code limit, and the market runtime is under the 24,576-byte contract limit. Each listing is about 470k gas and fits in a small block.
+
+Season 0 v2 (house-seeded pots) is deployed on HyperEVM testnet. Registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5`, implementation `0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d`, deployer `0xFfFC0719380a4d500C3373A26BE1f273bD7C1468`. Explorer: <https://testnet.purrsec.com>. The twelve market addresses, including DEMO, are in `contracts/deployments/998.json`. The v1 registry `0xcA309d8D1Ecd81d85D968CF313E01B25b0D09bd9` and its markets are retired. `DeploySeason0` writes `deployedAt` from the script block timestamp.
+
+1. Create a throwaway key. Do not commit it and do not print it.
+
+   ```bash
+   mkdir -p /tmp/ww-secret && chmod 700 /tmp/ww-secret
+   cast wallet new --json > /tmp/ww-secret/key.json
+   chmod 600 /tmp/ww-secret/key.json
+   ```
+
+2. Fund it from the official faucet: <https://app.hyperliquid-testnet.xyz/drip>. The same address must already have deposited on Hyperliquid mainnet. The faucet then credits 1,000 mock USDC on HyperCore. The info call is `{"type":"claimDrip","user":"<address>"}` on `https://api.hyperliquid-testnet.xyz/info`. An address with no mainnet deposit gets `Cannot claim drip because user <address> does not exist on mainnet.` Stop there. Do not use another faucet.
+
+3. Put testnet HYPE on HyperEVM. The drip is mock USDC, not gas. Buy a little testnet HYPE with that USDC on HyperCore, then send the HYPE to `0x2222222222222222222222222222222222222222`. That credits the same address on the EVM (18 decimals). At the current 0.1 gwei base fee, 0.05 HYPE covers the big-block deploy, the eleven listings, and a few keeper cycles.
+
+4. Turn on big blocks for that address. It has to be a Core user first, which the drip does. From the [official Python SDK](https://github.com/hyperliquid-dex/hyperliquid-python-sdk):
+
+   ```python
+   from hyperliquid.exchange import Exchange
+   from hyperliquid.utils import constants
+   from eth_account import Account
+   wallet = Account.from_key(os.environ["DEPLOYER_PRIVATE_KEY"])
+   print(Exchange(wallet, constants.TESTNET_API_URL).use_big_blocks(True))
+   ```
+
+   That submits `{"type":"evmUserModify","usingBigBlocks":true}`. `bigBlockGasPrice` is not implemented on `rpc.hyperliquid-testnet.xyz`; `eth_gasPrice` was `0x5f5e100` (0.1 gwei) when this was checked.
+
+5. Deploy the registry. The flag is required: without `--disable-block-gas-limit` the simulation hits the small-block cap and the script never broadcasts.
+
+   ```bash
+   export DEPLOYER_PRIVATE_KEY="$(python3 -c 'import json; d=json.load(open("/tmp/ww-secret/key.json")); row=d["data"][0] if isinstance(d, dict) else d[0]; print(row["private_key"])')"
+   cd contracts
+   WRITE_DEPLOYMENT=1 forge script script/DeploySeason0.s.sol \
+     --rpc-url hyperevm_testnet --broadcast --slow --disable-block-gas-limit
+   ```
+
+6. Turn big blocks off before listing and before the keeper. Listings and settles fit in small blocks, and big blocks only arrive about once a minute.
+
+   ```python
+   print(Exchange(wallet, constants.TESTNET_API_URL).use_big_blocks(False))
+   ```
+
+   That submits `{"type":"evmUserModify","usingBigBlocks":false}`.
+
+7. List the whales on chain. The script reads `script/whales.json`, including a `testnetOnly` demo whale, and creates a missing row in `deployments/998.json` instead of stopping. A per-whale `weightedPerps` overrides the file default (DEMO is testnet ETH, index 4). `--dry-run` calls `listings(address)` on the current registry and prints the result. It does not trust a market address left in the file, it sends nothing, and it writes nothing. `--write` broadcasts `addWallet` only when that call returns the zero address, then records the market. The key is `ETH_PRIVATE_KEY` in the environment. `DEPLOYER_PRIVATE_KEY` is copied into that variable for the cast process. It is not passed as `--private-key`.
+
+   ```bash
+   export ETH_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
+   python3 script/list_whales.py --dry-run
+   python3 script/list_whales.py --write
+   ```
+
+8. Run the keeper with the same key for a few minutes and confirm `Settled` receipts on <https://testnet.purrsec.com>.
+
+The eleven public whales have no open testnet positions, so those settlements move no pot. A demo with real PnL needs one extra listing whose HyperCore address is a testnet account you control, with a small position opened by hand on the testnet app (ETH perp index 4). Do not run a trading bot for that.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, and a real copy of `deployments.json` (`cp -L`, because the symlink points outside `web/`). It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
+
+Cold-launch set, from the design doc's self-set names. Re-check them live before listing. HLP's child addresses are not hardcoded; add them with `addMember` after reading `vaultDetails`.
+
+| Ticker | Name | Address |
+|---|---|---|
+| MACHI | Machi Big Brother | `0x020ca66c30bec2c4fe3861a94e4db4a498a35872` |
+| HLP | HLP Vault | `0xdfc24b077bc1425ad1dea75bcb6f8158e10df303` |
+| BOBBY | BobbyBigSize | `0x7fdafde5cfb5465924316eced2d3715494c517d1` |
+| FAUVES | 2 frères 2 fauves | `0x49e96e255ba418d08e66c35b588e2f2f3766e1d0` |
+| NMTD | NMTD | `0xf517639a8872e756ac98d3c65507d2ebc25cc032` |
+| PURRINA | PURRINA Pro Plan | `0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927` |
+| JEFF | we love u jeff | `0x1367df28c0681431b8a8f3d887576a1cad85560e` |
+| FUMBLER | perpfumbler | `0x523852be2db1a76a0e088ecbff32e849544054e5` |
+| CATHOT | cat hot wallet | `0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b` |
+| SILK | x.com/SilkBtc | `0x880ac484a1743862989a441d6d867238c7aa311c` |
+| WYNN | James Wynn (sleeping at design time) | `0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6` |
+
+## Design choices
+
+- Position-integrated mark PnL, not the change in account value.
+- Next-settlement fills. PnL is applied, then the queue, all at one NAV snapshot.
+- Caps from the design doc: α = 0.25, ±25% per settlement, signed ±50% per UTC day.
+- Curated listings, cold launch, and a wallet-owner opt-out. No open listing.
+- Precompile reads are gas-capped so one bad index cannot burn the rest of the transaction.
+- Real-money behaviour is absent. There is no USDC token, no CoreWriter, and no fee withdraw.
+
+## Deviations from the design doc
+
+- TAIL and FADE are non-transferable point shares inside the market, not ERC-20s. Season 0 forbids a token.
+- Heartbeat is 60 seconds, plus a settle on position-size change.
+- Pots start with a house seed on both sides. The proof-of-concept page still draws demo pots in the browser until a wallet is connected. The first buyer of an unseeded side locks 1 point of shares, and that point stays locked through opt-out.
+- The daily cap is a signed running sum of applied `r` inside ±50%. A gain later in the day can give back budget that an earlier loss used.
+- Completeness is a two-sided band. The design stated the lower bound. The upper bound rejects a book whose notionals overshoot `ntlPos`.
+- HLP children are a curator member list. Their addresses are not in the design doc, so they are not hardcoded. There is no challenge window yet.
+- HIP-3 dexes default to off. Enabling a dex is an owner call; weighting a perp is a second call. Until a perp is weighted its mark move has zero PnL and it still counts for completeness.
+- No listing fee, no performance skim, no fee split, and no lose-to-earn mint. Player points arrive only from the 10,000-point claim. The house seed is a separate mint into the pots, held at `address(2)`, and it is not a claimable balance. Fees sit in `protocolFees`.
+- No keeper bounty. `Settled` records the caller so a bounty can be paid later from fees.
+- Sleep is automatic when tracked notional is zero. Pause is a separate guardian halt. Cancel still works while paused. Buys wait.
+- Opt-out of an already listed wallet reports `OptedOutAddress` on any future `addWallet`, including while the old market still exists.
+- The crossing-midnight sample uses yesterday's `eRef` and consumes the new day's cap budget. A zero `eRef` is raised to current equity before that sample if the account is funded.
+
+## Open questions
+
+1. Is the daily cap a signed net ±50%, or a cap on the sum of absolute moves?
+2. Is ε = 1% right on testnet for cross, isolated, and multi-asset accounts?
+3. What are HLP's current child addresses from `vaultDetails`, and should Season 0 list that family on day one?
+4. Is 1 play-point ≡ $1 the right scale for the α comparison, with a 10,000-point claim?
+5. Opt-out needs an EOA signature. How should agent or contract HyperCore wallets opt out?
+6. Should guardian pause expire on its own so a paused market cannot hold points indefinitely?
+7. Should a newly weighted perp wait one sample before its mark move counts as PnL?
+8. A flat-book testnet settle reads equity at 6 decimals (BOBBY's $1,000 came back as 1,000,000,000). Gas at 35 positions, and invalid-index gas burn, still need a live book that is not flat. The unit tests mock those reads.
+9. Should lose-to-earn points stay an indexer concern, computed from fees and realised losses in the events?
+10. Confirm the cold-launch display names are still the owners' own, and whether James Wynn ships as a sleeping coin.

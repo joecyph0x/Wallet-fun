@@ -1,0 +1,151 @@
+{
+  "chainId": 998,
+  "name": "HyperEVM Testnet",
+  "rpcUrl": "https://rpc.hyperliquid-testnet.xyz/evm",
+  "infoApi": "https://api.hyperliquid-testnet.xyz/info",
+  "explorer": "https://testnet.purrsec.com",
+  "heartbeatSec": 60,
+  "pollSec": 15,
+  "nativeCurrency": {
+    "name": "HYPE",
+    "symbol": "HYPE",
+    "decimals": 18
+  },
+  "registry": "0x9A00D44E7564004f8557bf7a780793c546ccd4a5",
+  "implementation": "0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d",
+  "deployer": "0xFfFC0719380a4d500C3373A26BE1f273bD7C1468",
+  "deployedAt": 1792635480,
+  "note": "Registry from DeploySeason0. Markets from list_whales.py (cast send on chain 998). Forge simulation has no HyperCore precompiles, so listing is not part of the forge script.",
+  "builder": {
+    "address": "0x0000000000000000000000000000000000000000",
+    "feeBps": 5,
+    "f": 50,
+    "maxFeeRate": "0.05%",
+    "hyperliquidChain": "Testnet",
+    "note": "Placeholder. Season 0 does not sign or submit orders. f is tenths of a basis point: 50 = 5 bps = 0.05% = maxFeeRate. Replace address before any approveBuilderFee. A builder needs at least 100 USDC of perps account value. Perp builder fees are capped at 0.1%."
+  },
+  "wallets": [
+    {
+      "ticker": "MACHI",
+      "name": "Machi Big Brother",
+      "whale": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+      "market": "0x08ACeA438F93ff816C4ACA733F89667752DD9B8c",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "BOBBY",
+      "name": "BobbyBigSize",
+      "whale": "0x7fdafde5cfb5465924316eced2d3715494c517d1",
+      "market": "0x0aeFE1f1d097e1D0178510c110cD045ea91f6D62",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "HLP",
+      "name": "HLP Vault",
+      "whale": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
+      "market": "0x337ce7f4FDEFaad4516820aA44cab332A2Cb3926",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "FAUVES",
+      "name": "2 fr\u00e8res 2 fauves",
+      "whale": "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
+      "market": "0xd17c7f34B1fF54e00c20Dde5C164afF3eB97C9A7",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "NMTD",
+      "name": "NMTD",
+      "whale": "0xf517639a8872e756ac98d3c65507d2ebc25cc032",
+      "market": "0xeD9fA5d874EA0f540533AbDeB8a6ed29eECbe170",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "SILK",
+      "name": "x.com/SilkBtc",
+      "whale": "0x880ac484a1743862989a441d6d867238c7aa311c",
+      "market": "0x9b4699A593A215E7899B8f0ADFFBdBC1fABaa30B",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "JEFF",
+      "name": "we love u jeff",
+      "whale": "0x1367df28c0681431b8a8f3d887576a1cad85560e",
+      "market": "0xad33Cd7596291d4C392befA2D8C4Be279F87672D",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "CATHOT",
+      "name": "cat hot wallet",
+      "whale": "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b",
+      "market": "0x9ADcB2FEBCE18C67C65cc3920252dAbdd56c6C22",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "PURRINA",
+      "name": "PURRINA Pro Plan",
+      "whale": "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927",
+      "market": "0x361838AEAFF887911734F8F6648DD96008225017",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "FUMBLER",
+      "name": "perpfumbler",
+      "whale": "0x523852be2db1a76a0e088ecbff32e849544054e5",
+      "market": "0x7F495eCAb0216f6A7314A3fbC6496C4d7184fD07",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "WYNN",
+      "name": "James Wynn",
+      "whale": "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6",
+      "market": "0xc8Ed33C46Fa9F1E343C442A3532fd39DC9995394",
+      "weightedPerps": [
+        4
+      ],
+      "listError": ""
+    },
+    {
+      "ticker": "DEMO",
+      "name": "Demo Whale",
+      "whale": "0x6dd538c00055d7ea6d451b97a94e463e8ce89519",
+      "market": "0x41Fdb4AAbA614655AEE5d63762681AEE2B4F494A",
+      "weightedPerps": [
+        4
+      ],
+      "testnetOnly": true,
+      "listTx": "0x1cde6265ade9aa115d76e7f0ee075a38d203292df31930b235b6dfd5b1d036d8",
+      "listError": ""
+    }
+  ]
+}

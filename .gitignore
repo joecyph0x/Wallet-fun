@@ -1,0 +1,11 @@
+.env
+.env.*
+node_modules/
+dist/
+*.log
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+keeper/node_modules/
+**/*deployer*.json
+**/key.json

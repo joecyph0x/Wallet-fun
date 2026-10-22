@@ -1,0 +1,21 @@
+{
+  "count": 12,
+  "chainId": 998,
+  "dexes": [0],
+  "weightedPerps": [4],
+  "note": "Testnet validator ETH is perp index 4 (meta.universe). Mainnet ETH is index 1. Dex 0 is the validator perp dex. Other dexes stay off until the curator enables them.",
+  "whales": [
+    {"ticker": "MACHI", "name": "Machi Big Brother", "whale": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872"},
+    {"ticker": "BOBBY", "name": "BobbyBigSize", "whale": "0x7fdafde5cfb5465924316eced2d3715494c517d1"},
+    {"ticker": "HLP", "name": "HLP Vault", "whale": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"},
+    {"ticker": "FAUVES", "name": "2 frères 2 fauves", "whale": "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0"},
+    {"ticker": "NMTD", "name": "NMTD", "whale": "0xf517639a8872e756ac98d3c65507d2ebc25cc032"},
+    {"ticker": "SILK", "name": "x.com/SilkBtc", "whale": "0x880ac484a1743862989a441d6d867238c7aa311c"},
+    {"ticker": "JEFF", "name": "we love u jeff", "whale": "0x1367df28c0681431b8a8f3d887576a1cad85560e"},
+    {"ticker": "CATHOT", "name": "cat hot wallet", "whale": "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b"},
+    {"ticker": "PURRINA", "name": "PURRINA Pro Plan", "whale": "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927"},
+    {"ticker": "FUMBLER", "name": "perpfumbler", "whale": "0x523852be2db1a76a0e088ecbff32e849544054e5"},
+    {"ticker": "WYNN", "name": "James Wynn", "whale": "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6"},
+    {"ticker": "DEMO", "name": "Demo Whale", "whale": "0x6dd538c00055d7ea6d451b97a94e463e8ce89519", "testnetOnly": true, "weightedPerps": [4]}
+  ]
+}
