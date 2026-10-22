@@ -27,12 +27,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Stage web/ and inline the address book
         run: |
-          mkdir -p _site
-          cp web/index.html web/chain.js _site/
-          cp -L web/deployments.json _site/deployments.json
+          mkdir -p _site/config
+          cp web/index.html web/chain.js web/v3abi.js _site/
+          cp -L web/config/testnet-v3.json _site/config/testnet-v3.json
           test -s _site/index.html
           test -s _site/chain.js
-          test -s _site/deployments.json
+          test -s _site/v3abi.js
+          test -s _site/config/testnet-v3.json
           if grep -R -n -E 'PRIVATE_KEY|BEGIN OPENSSH PRIVATE|BEGIN EC PRIVATE' _site; then
             echo "refusing to publish a secret" >&2
             exit 1
