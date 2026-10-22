@@ -1,0 +1,40 @@
+# whalewallet.fun Season 0 X bot (@whalewalletbot).
+# Read-only. It never signs a Hyperliquid order and never holds a trading key.
+#
+# X credentials are NOT here. Set them with:
+#   npx wrangler secret put X_API_KEY
+#   npx wrangler secret put X_API_SECRET
+#   npx wrangler secret put X_ACCESS_TOKEN
+#   npx wrangler secret put X_ACCESS_SECRET
+#
+# KV id below is a placeholder. Create one and paste the id before deploy:
+#   npx wrangler kv namespace create XBOT
+name = "whalewallet-x-bot"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "XBOT"
+id = "00000000000000000000000000000000"
+
+[vars]
+DRY_RUN = "true"
+MAX_POSTS_PER_DAY = "14"
+MIN_GAP_SEC = "1200"
+NOTIONAL_USD = "1000000"
+PNL_USD = "1000000"
+ADD_PCT = "0.5"
+DAILY_RECAP = "false"
+MAINNET_INFO = "https://api.hyperliquid.xyz/info"
+RPC_URL = "https://rpc.hyperliquid-testnet.xyz/evm"
+CHAIN_ID = "998"
+REGISTRY = "0x9A00D44E7564004f8557bf7a780793c546ccd4a5"
+SITE = "whalewallet.fun"
+WHALE_NOTIONAL = "{}"
+# none: no URL and no bare domain (plain post, $0.015). daily: URL only on the recap ($0.20). all: URL on every post.
+LINK_MODE = "none"
+# Plain $0.015, any URL $0.20. 14 plain posts are $0.21, under this cap. One URL post is $0.20.
+MAX_DAILY_SPEND_USD = "0.30"
