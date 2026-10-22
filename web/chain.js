@@ -1,10 +1,10 @@
 /**
  * whalewallet.fun Season 0 chain adapter.
  *
- * Simulated pots stay in localStorage until three things are true:
- * deployments.json has a non-zero registry, an injected wallet is connected,
- * and that wallet is on HyperEVM testnet (chain id 998). Otherwise the page
- * keeps the demo. Points are play points. There is no cash withdraw.
+ * Pots are read from the public HyperEVM testnet RPC for everyone. A wallet
+ * is required only to claim points and place orders. If that read fails, the
+ * page keeps the in-browser demo and says so. Points are play points. There
+ * is no cash withdraw. Chain id other than 998 is refused.
  */
 (function () {
   const ZERO = "0x0000000000000000000000000000000000000000";
@@ -47,6 +47,8 @@
   let demoSnap = null;
   let basis = {};
   let busy = false;
+  let potsLive = false;
+  let potsFailed = false;
 
   function $(s) { return document.querySelector(s); }
   function toast(m) { if (window.toast) window.toast(m); }
@@ -54,6 +56,7 @@
     return !!(cfg && cfg.registry && cfg.registry.toLowerCase() !== ZERO);
   }
   function live() { return configured() && !!account && onTestnet; }
+  function potsOk() { return potsLive; }
   function marketOf(tk) {
     if (!cfg || !cfg.wallets) return null;
     const row = cfg.wallets.find((w) => w.ticker === tk);
@@ -163,7 +166,7 @@
     const btn = $("#connectBtn");
     if (btn) {
       btn.textContent = live() ? short(account) : "Connect wallet";
-      btn.title = live() ? "Disconnect and return to the simulated demo" : "Connect an injected wallet on HyperEVM testnet";
+      btn.title = live() ? "Disconnect" : "Connect an injected wallet on HyperEVM testnet to trade";
     }
     let claim = $("#claimBtn");
     if (live() && !claimed) {
@@ -180,13 +183,21 @@
     if (banner) {
       banner.textContent = live()
         ? "SEASON 0 TESTNET — play points on HyperEVM chain 998. Sell returns points to your balance at the next settlement. No cash value."
-        : "PROOF OF CONCEPT — play points, not money. No wallet connected: pots stay simulated in this browser.";
+        : potsLive
+          ? "SEASON 0 TESTNET — live pots on HyperEVM chain 998. Connect a wallet to trade. Play points, no cash value."
+          : potsFailed
+            ? "Could not read the testnet pots, so this page is the browser simulation. Play points, not money."
+            : "PROOF OF CONCEPT — play points, not money. No wallet connected: pots stay simulated in this browser.";
     }
     const notice = document.getElementById("testnetNotice");
     if (notice) {
       notice.textContent = live()
         ? "TESTNET — you are on the HyperEVM testnet pots. Curated cards still show mainnet positions, so those settlements stay at PnL 0. Testnet-only whales, such as DEMO, are read from the testnet book the keeper settles."
-        : "TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.";
+        : potsLive
+          ? "TESTNET — these pots are the live HyperEVM testnet pots (chain 998). Connect a wallet to claim points and place orders. Curated cards still show Hyperliquid mainnet positions, so those settlements stay at PnL 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book."
+          : potsFailed
+            ? "Could not read the testnet pots, so this page is the browser simulation. Curated cards still show Hyperliquid mainnet positions."
+            : "TESTNET — curated cards show Hyperliquid mainnet positions. Those whales are flat on testnet, so their on-chain PnL is 0. A whale flagged testnet-only, such as DEMO, is read from the testnet book instead. Without a connected wallet the pots on this page are still the browser simulation.";
     }
   }
 
@@ -247,43 +258,112 @@
     basis = {};
     restoreDemo();
     if (window.S) window.S.w && Object.values(window.S.w).forEach((x) => { x.chainSeen = 0; });
-    toast("Back to the simulated demo.");
+    toast(potsLive ? "Disconnected. Pots stay on the HyperEVM testnet read." : "Back to the simulated demo.");
     paint();
     if (window.softRender) window.softRender();
   }
 
-  async function refresh() {
-    if (!live() || !window.S || !window.WALLETS || !window.U) return;
+  const POT_CALLS = ["tailPot", "fadePot", "tailSupply", "fadeSupply", "eRef", "status", "lastSettleTs", "settleCount", "lastPnl", "lastAppliedRBps", "lastDelta", "paused"];
+
+  async function refreshPots() {
+    if (!configured() || !window.S || !window.WALLETS) {
+      potsLive = false;
+      return false;
+    }
+    const tks = [];
+    const jobs = [];
+    for (const w of window.WALLETS) {
+      const m = marketOf(w.tk);
+      if (!m) continue;
+      tks.push(w.tk);
+      for (const name of POT_CALLS) jobs.push({ to: m, data: SEL[name] });
+    }
+    if (!tks.length) {
+      potsFailed = true;
+      potsLive = false;
+      return false;
+    }
+    try {
+      const chainHex = await rpc("eth_chainId", []);
+      if (Number.parseInt(chainHex, 16) !== CHAIN_ID) {
+        throw new Error("refusing chain id " + chainHex + "; pots are HyperEVM testnet 998 only");
+      }
+      const rows = await batch(jobs);
+      const per = POT_CALLS.length;
+      const parsed = [];
+      for (let i = 0; i < tks.length; i++) {
+        const b = i * per;
+        for (let k = 0; k < per; k++) {
+          const row = rows[b + k];
+          if (!row || row.error || row.result == null) {
+            throw new Error((row && row.error && row.error.message) || "pot read failed");
+          }
+        }
+        const take = (k) => wordsOf(rows[b + k].result);
+        parsed.push({
+          tk: tks[i],
+          tailPot: u256(take(0)[0]),
+          fadePot: u256(take(1)[0]),
+          tailSup: u256(take(2)[0]),
+          fadeSup: u256(take(3)[0]),
+          eRef: u256(take(4)[0]),
+          status: num(u256(take(5)[0] || "0")),
+          lastTs: num(u256(take(6)[0] || "0")),
+          count: num(u256(take(7)[0] || "0")),
+          pnl: i256(take(8)[0] || "0"),
+          bps: i256(take(9)[0] || "0"),
+          delta: i256(take(10)[0] || "0"),
+          paused: u256(take(11)[0] || "0") !== 0n,
+        });
+      }
+      for (const p of parsed) {
+        const x = window.S.w[p.tk];
+        if (!x) continue;
+        x.T = num(p.tailPot) / 1e6;
+        x.F = num(p.fadePot) / 1e6;
+        x.supT = num(p.tailSup) / 1e6;
+        x.supF = num(p.fadeSup) / 1e6;
+        if (p.eRef > 0n) x.eRef = num(p.eRef) / 1e6;
+        x.chainStatus = STATUS[p.status] || "unknown";
+        x.chainPaused = p.paused;
+        x.lastR = num(p.bps) / 10000;
+        if (p.count > (x.chainSeen || 0)) {
+          x.settle.unshift({ t: (p.lastTs || Math.floor(Date.now() / 1000)) * 1000, pnl: num(p.pnl) / 1e6, r: x.lastR, rc: x.lastR, d: num(p.delta) / 1e6 });
+          if (x.settle.length > 100) x.settle.pop();
+          x.chainSeen = p.count;
+        }
+        const due = p.lastTs ? (p.lastTs + 60) * 1000 : 0;
+        if (due > Date.now() + 1000) window.S.nextSettle = Math.min(window.S.nextSettle || due, due);
+      }
+      const counts = window.WALLETS.map((w) => (window.S.w[w.tk] && window.S.w[w.tk].chainSeen) || 0);
+      window.S.settleN = counts.reduce((a, b) => a + b, 0);
+      potsLive = true;
+      potsFailed = false;
+      return true;
+    } catch (e) {
+      console.warn(e);
+      if (!potsLive) potsFailed = true;
+      return false;
+    }
+  }
+
+  async function refreshUser() {
     const reg = cfg.registry;
     const user = addr(account);
     const jobs = [
-      { to: reg, data: callData(SEL.points, addr(account)) },
-      { to: reg, data: callData(SEL.claimed, addr(account)) },
+      { to: reg, data: callData(SEL.points, user) },
+      { to: reg, data: callData(SEL.claimed, user) },
     ];
     const markets = [];
     for (const w of window.WALLETS) {
       const m = marketOf(w.tk);
       if (!m) continue;
-      markets.push(w.tk);
-      const base = jobs.length;
+      markets.push({ tk: w.tk, market: m, base: jobs.length });
       jobs.push(
-        { to: m, data: SEL.tailPot },
-        { to: m, data: SEL.fadePot },
-        { to: m, data: SEL.tailSupply },
-        { to: m, data: SEL.fadeSupply },
-        { to: m, data: SEL.eRef },
-        { to: m, data: SEL.status },
-        { to: m, data: SEL.lastSettleTs },
-        { to: m, data: SEL.settleCount },
-        { to: m, data: SEL.lastPnl },
-        { to: m, data: SEL.lastAppliedRBps },
-        { to: m, data: SEL.lastDelta },
-        { to: m, data: SEL.paused },
         { to: m, data: callData(SEL.tailShares, user) },
         { to: m, data: callData(SEL.fadeShares, user) },
         { to: m, data: SEL.orderCount },
       );
-      w._base = base;
     }
     const rows = await batch(jobs);
     const pw = wordsOf(rows[0] && rows[0].result);
@@ -295,51 +375,27 @@
     window.U.hold = {};
     window.U.queue = [];
     shares = {};
-
-    for (const w of window.WALLETS) {
-      const x = window.S.w[w.tk];
-      const m = marketOf(w.tk);
-      if (!m || w._base == null) continue;
-      const b = w._base;
-      const take = (k) => wordsOf(rows[b + k] && rows[b + k].result);
-      const tailPot = u256(take(0)[0]);
-      const fadePot = u256(take(1)[0]);
-      const tailSup = u256(take(2)[0]);
-      const fadeSup = u256(take(3)[0]);
-      const eRef = u256(take(4)[0]);
-      const status = num(u256(take(5)[0] || "0"));
-      const lastTs = num(u256(take(6)[0] || "0"));
-      const count = num(u256(take(7)[0] || "0"));
-      const pnl = i256(take(8)[0] || "0");
-      const bps = i256(take(9)[0] || "0");
-      const delta = i256(take(10)[0] || "0");
-      const paused = u256(take(11)[0] || "0") !== 0n;
-      const tailSh = u256(take(12)[0] || "0");
-      const fadeSh = u256(take(13)[0] || "0");
-      const nOrders = num(u256(take(14)[0] || "0"));
-      x.T = num(tailPot) / 1e6;
-      x.F = num(fadePot) / 1e6;
-      x.supT = num(tailSup) / 1e6;
-      x.supF = num(fadeSup) / 1e6;
-      if (eRef > 0n) x.eRef = num(eRef) / 1e6;
-      x.chainStatus = STATUS[status] || "unknown";
-      x.chainPaused = paused;
-      x.lastR = num(bps) / 10000;
-      if (count > (x.chainSeen || 0)) {
-        x.settle.unshift({ t: (lastTs || Math.floor(Date.now() / 1000)) * 1000, pnl: num(pnl) / 1e6, r: x.lastR, rc: x.lastR, d: num(delta) / 1e6 });
-        if (x.settle.length > 100) x.settle.pop();
-        x.chainSeen = count;
-      }
-      shares[w.tk + ":T"] = tailSh;
-      shares[w.tk + ":F"] = fadeSh;
-      if (tailSh > 0n) window.U.hold[w.tk + ":T"] = hold(w.tk, "T", tailSh);
-      if (fadeSh > 0n) window.U.hold[w.tk + ":F"] = hold(w.tk, "F", fadeSh);
-      if (nOrders > 0 && nOrders <= 64) await loadOrders(m, w.tk, nOrders);
-      const due = lastTs ? (lastTs + 60) * 1000 : 0;
-      if (due > Date.now() + 1000) window.S.nextSettle = Math.min(window.S.nextSettle || due, due);
+    for (const row of markets) {
+      const take = (k) => wordsOf(rows[row.base + k] && rows[row.base + k].result);
+      const tailSh = u256(take(0)[0] || "0");
+      const fadeSh = u256(take(1)[0] || "0");
+      const nOrders = num(u256(take(2)[0] || "0"));
+      shares[row.tk + ":T"] = tailSh;
+      shares[row.tk + ":F"] = fadeSh;
+      if (tailSh > 0n) window.U.hold[row.tk + ":T"] = hold(row.tk, "T", tailSh);
+      if (fadeSh > 0n) window.U.hold[row.tk + ":F"] = hold(row.tk, "F", fadeSh);
+      if (nOrders > 0 && nOrders <= 64) await loadOrders(row.market, row.tk, nOrders);
     }
-    const counts = window.WALLETS.map((w) => window.S.w[w.tk].chainSeen || 0);
-    window.S.settleN = counts.reduce((a, b) => a + b, 0);
+  }
+
+  async function refresh() {
+    if (!window.S || !window.WALLETS) return;
+    try {
+      const ok = await refreshPots();
+      if (ok && live() && window.U) await refreshUser();
+    } catch (e) {
+      console.warn(e);
+    }
     paint();
     if (window.softRender) window.softRender();
   }
@@ -480,7 +536,7 @@
   }
 
   window.WW = {
-    live, attach, connect, refresh, order, cancel, optOut, paint,
+    live, potsLive: potsOk, potsFailed() { return potsFailed; }, attach, connect, refresh, order, cancel, optOut, paint,
     registryShort() { return configured() ? short(cfg.registry) : "not deployed"; },
     config() { return cfg; },
   };

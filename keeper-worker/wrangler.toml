@@ -1,0 +1,19 @@
+# whalewallet.fun Season 0 keeper. HyperEVM testnet only.
+# The signing key is NOT here. Set it with: npx wrangler secret put KEEPER_PRIVATE_KEY
+name = "whalewallet-keeper"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+CHAIN_ID = "998"
+RPC_URL = "https://rpc.hyperliquid-testnet.xyz/evm"
+INFO_API = "https://api.hyperliquid-testnet.xyz/info"
+REGISTRY = "0x9A00D44E7564004f8557bf7a780793c546ccd4a5"
+MIN_GAS_HYPE = "0.005"
+IDLE_HEARTBEAT_SEC = "600"
+HEARTBEAT_SEC = "60"
+MAX_TX_PER_RUN = "2"

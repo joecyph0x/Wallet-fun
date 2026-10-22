@@ -31,3 +31,20 @@ jobs:
           npm ci
           npm test
           npm run typecheck
+
+  keeper-worker:
+    name: keeper worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: keeper-worker/package-lock.json
+      - name: idle skip and typecheck
+        working-directory: keeper-worker
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
