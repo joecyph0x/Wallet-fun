@@ -73,8 +73,12 @@ type Report = {
 
 /** Free-plan subrequest cap is 50. Leave room for view batches, info calls, and sends. */
 const MAX_MARKETS_PER_RUN = 24;
-/** How far back /health looks for this keeper's Settled logs. About a day of 1s blocks. */
-const LOG_LOOKBACK = 100_000n;
+/**
+ * How far back /health looks for this keeper's Settled logs. The testnet RPC rejects
+ * eth_getLogs over more than 1,000 blocks ("query exceeds max block range 1000"), so this
+ * is about 16 minutes of 1s blocks, enough to see the last 10-minute v3 pass.
+ */
+const LOG_LOOKBACK = 999n;
 const NOTE =
   "Read from chain on each request. Isolates do not share memory. wrangler tail is the cron log. No KV.";
 

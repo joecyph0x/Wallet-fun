@@ -120,7 +120,7 @@ KEEPER_PRIVATE_KEY=0x... npm run settle                # broadcasts. Never commi
 
 `keeper-worker/` is the same settle loop as a Cloudflare Worker, so it keeps running without a box. A cron trigger fires every minute (`* * * * *`). Each run checks `eth_chainId` and refuses anything other than 998, including mainnet 999, before it sends. It reads markets from the v2 registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5`, then `lastSettleTs`, `openOrders`, `lastEquity`, and `lastNtlPos` on each market, plus the testnet info API for positions and account value.
 
-Idle skip matches the box keeper, without Workers KV. A flat whale (no open positions), an account value that still equals on-chain `lastEquity`, and `openOrders == 0` is settled only every `IDLE_HEARTBEAT_SEC` (default 600). State is derived from those chain fields and the info API. Free KV allows 1,000 writes a day, and a write every minute would be 1,440, so this worker does not use KV. `GET /health` does not remember the last cron. Isolates do not share memory, so that field was always empty on a fresh request. Each `/health` reads the chain instead: keeper balance, mined nonce, pending nonce, the newest `Settled` log from this keeper in the last 100,000 blocks, and every market's `lastSettleTs` and `openOrders`. `wrangler tail` is still the cron log.
+Idle skip matches the box keeper, without Workers KV. A flat whale (no open positions), an account value that still equals on-chain `lastEquity`, and `openOrders == 0` is settled only every `IDLE_HEARTBEAT_SEC` (default 600). State is derived from those chain fields and the info API. Free KV allows 1,000 writes a day, and a write every minute would be 1,440, so this worker does not use KV. `GET /health` does not remember the last cron. Isolates do not share memory, so that field was always empty on a fresh request. Each `/health` reads the chain instead: keeper balance, mined nonce, pending nonce, the newest `Settled` log from this keeper in the last 999 blocks (the testnet RPC rejects a wider `eth_getLogs` range), and every market's `lastSettleTs` and `openOrders`. `wrangler tail` is still the cron log.
 
 There is no batch `settle` on `WalletMarket`. A run sends at most `MAX_TX_PER_RUN` (default 2) and rotates. Queued orders are first, then a whale that just opened or closed a position, then the oldest `lastSettleTs`. Queued orders do not bypass the contract's 60 second `TooEarly` check, so a one-minute cron is the same fill granularity the chain already has. Sub-minute fills are not available unless a position size changes, and the cron will catch that on its next minute. JSON-RPC batches are at most 20 calls. The pending nonce is read at the start of every run and then incremented locally for the second transaction. Gas is fixed at 1,000,000. A DEMO settle with an open ETH position uses about 403,000, and a 400,000 cap reverted out of gas. The worker does not call `eth_estimateGas` and does not wait for a receipt. The box keeper in `keeper/` sets the same 1,000,000 gas on `writeContract`. Below `MIN_GAS_HYPE` (default 0.005 HYPE) it logs `LOW_GAS` and sends nothing.
 
@@ -144,7 +144,29 @@ Fund the keeper address with a little testnet HYPE before the first cron. `GET /
 
 ## v3 USDC markets
 
-v3 is a new set of contracts under `contracts/src/v3/`. Nothing here is deployed. `script/DeployV3.s.sol` reverts unless `ENABLE_V3_DEPLOY=true` and the chain id is 999, and this change does not broadcast it. The live testnet registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5` is untouched. v2 tests still pass.
+v3 is a new set of contracts under `contracts/src/v3/`. Nothing is on mainnet. `script/DeployV3.s.sol` reverts unless `ENABLE_V3_DEPLOY=true` and the chain id is 999, and this change does not broadcast it. The v2 testnet registry `0x9A00D44E7564004f8557bf7a780793c546ccd4a5` is untouched, but the keeper Worker no longer settles it. v2 tests still pass.
+
+### v3 on HyperEVM testnet
+
+v3 is deployed on testnet (chain 998). Every address is in `deployments/testnet-v3.json`.
+
+| Contract | Address |
+| --- | --- |
+| Registry (ERC-1967 proxy) | `0x896E8B5952f48205F032224311ba55D5C0a42F3F` |
+| Registry logic (`WalletRegistryV3Testnet`) | `0xC4C488bF6154604e25F853881ee5d413a69760b7` |
+| Market implementation | `0x63325B2c55c542e455e2C7337975426F9ba3441B` |
+| Market beacon | `0xB8E0D34Fa581140d9e04A71aa49bfc77790B0765` |
+| Test USDC (`tUSDC`, 6 decimals) | `0xAbef3ab9E36a5dC9416981cA29410bdFaA636490` |
+
+- Test USDC is `src/v3/testnet/TestUSDC.sol`. Anyone can call `faucet(amount)` or `mint(to, amount)`, up to 1,000 tUSDC (`1000000000`) per call. The constructor refuses any chain but 998. Testnet has no Circle USDC to mint.
+- Owner, guardian, and fee wallet are the testnet deployer. Each of the twelve markets (the eleven whales and DEMO) was seeded with 50 tUSDC per side.
+- `WalletRegistryV3Testnet` is `WalletRegistryV3` plus `testnetList`. That owner call lists a wallet without the 24h timelock and reverts on any chain except 998. One timelock slot and 24 hours per listing would have taken twelve days. It adds no storage. Everything else is the unchanged v3 code, timelock included. Mainnet uses `DeployV3.s.sol` and the plain registry.
+- `script/DeployV3Testnet.s.sol` deploys TestUSDC, the market implementation, the testnet registry logic, and the proxy. It needs big blocks, because the market implementation's code deposit is over 3,000,000 gas. Listing is a separate step, because forge's simulator has no HyperCore precompiles.
+- Testnet `spotMeta` token 0 is USDC with `weiDecimals` 8, the same as mainnet, so `Config.USDC_SPOT` and `SPOT_TO_USD` hold. Testnet ETH is perp 4.
+- HLP is listed as the parent vault only. The mainnet HLP child vaults are not HyperCore users on testnet, so adding them as members reverts `NoCoreUser`. The keeper also builds books only for single-member, dex-0 markets.
+- The xyz (HIP-3) dex is not tracked (`dexes = [0]`). HIP-3 asset ids are documented as `100000 + dexIndex * 10000 + i`. `Config.dexOf` is `perp / 10000`, so check that mapping before enabling a builder dex.
+
+The keeper Worker runs `PROTOCOL = "v3"` against that registry, with only the `*/10 * * * *` cron. A minute cron left in place is a no-op under v3.
 
 There is no cheap fix for the deployed v2 markets. Each one is an EIP-1167 clone of implementation `0x7938EF37Af75b2aF39D5956fbB1561c66746Fe4d`, and that implementation has no way to change its code. A source patch would not change the bytecode the keeper calls. v2 `settle` walks every order ever placed, and the keeper's 1,000,000 gas cap runs out at about 290 lifetime orders. Those markets stay on the points game until users move to v3.
 
@@ -153,7 +175,7 @@ v3 differences that matter:
 - USDC. Mainnet Circle USDC is `0xb88339CB7199b77E23DB6E890353E22632Ba630f` (6 decimals). Tests use `MockUSDC`. Deposits and withdrawals are pull balances on the registry. A trade never calls `transfer`, so a blacklisted recipient cannot brick a settle. Fees accrue in `protocolFees` and the fee wallet withdraws them. A house seed is USDC the owner actually deposited. It is not minted.
 - Settlement is one storage write per epoch, not a loop over orders. Buys and sells commit into the open epoch and fill at the next epoch's NAV. A buy and a settle in the same transaction cannot fill. Cancel is charged the fee, and it reverts once the epoch is due.
 - Minimum order is 10 USDC. Each user has their own pending commit. There is no shared 64-slot queue.
-- The keeper calls `settleMany` on the registry. A market whose epoch has not elapsed returns false. One bad book does not revert the batch. The cron is every 10 minutes. Five minutes would put the worst-case day over 0.1 HYPE, so 10 minutes is the cadence. `PROTOCOL` defaults to `v2`, so deploying this worker does not start signing chain 999 or slow the testnet keeper. A v3 worker sets `PROTOCOL=v3`, chain 999, the mainnet RPC and info URLs, and the new registry, and it can drop the every-minute cron.
+- The keeper calls `settleMany` on the registry. A market whose epoch has not elapsed returns false. One bad book does not revert the batch. The cron is every 10 minutes. Five minutes would put the worst-case day over 0.1 HYPE, so 10 minutes is the cadence. `PROTOCOL` defaults to `v2` in code. The checked-in `wrangler.toml` now sets `v3`, chain 998, and the testnet v3 registry. A mainnet worker sets `PROTOCOL=v3`, chain 999, the mainnet RPC and info URLs, and the mainnet registry.
 - The guardian can pause new buys immediately. Sells, claims, cancels, and withdrawals stay open. After 72 hours of pause, `exitAtLastNav` redeems pro-rata without a new oracle read. The pot cap defaults to unlimited (`0`). The guardian can only tighten it. Raising it, and every weight, dex, member, fee, listing, beacon, or implementation change, waits 24 hours.
 - Markets share one beacon. The registry is an ERC-1967 proxy. Both upgrades go through that timelock. `WalletMarketV3` runtime is 22,706 bytes, under the 24,576 limit, with about 1,870 bytes to spare. The implementation deploy needs a big block because the code deposit is over 3,000,000 gas.
 - Equity is perp account value plus spot USDC (token 0, divided by 100). The caller passes every open perp. The perp index is whatever the info API's `meta.universe` order says, so mainnet ETH is 1 and testnet ETH is 4 without a hardcoded id. Returns use 1e18, so a move smaller than one basis point still pays. A one-sided pot has zero capacity, so the funded side does not pay itself.
