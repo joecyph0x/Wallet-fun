@@ -5,7 +5,7 @@
  * 40–51ms of CPU per run. secp256k1 here is @noble/curves, the same library
  * viem signs with, without viem's ABI coder or account wrapper. The raw
  * transaction matches viem's legacy serialisation (see sign.test.ts).
- * Chain id is fixed at 998 so this module cannot sign mainnet (999).
+ * Chain id defaults to 998. A v3 keeper may pass 999. Any other id is refused.
  */
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
@@ -130,8 +130,12 @@ function rlp(input: Rlp): Uint8Array {
 
 export function signLegacy(
   account: KeeperAccount,
-  tx: { nonce: number; gasPrice: bigint; gas: bigint; to: string; data: Hex },
+  tx: { nonce: number; gasPrice: bigint; gas: bigint; to: string; data: Hex; chainId?: bigint },
 ): Hex {
+  const chainId = tx.chainId ?? TESTNET_CHAIN_ID;
+  if (chainId !== 998n && chainId !== 999n) {
+    throw new Error(`refusing chain id ${chainId}; keeper signs 998 or 999 only`);
+  }
   const to = hexToBytes(tx.to);
   if (to.length !== 20) throw new Error("settle target is not an address");
   const fields: Rlp[] = [
@@ -142,9 +146,9 @@ export function signLegacy(
     new Uint8Array(),
     hexToBytes(tx.data),
   ];
-  const signing = rlp([...fields, bytesFromBigint(TESTNET_CHAIN_ID), new Uint8Array(), new Uint8Array()]);
+  const signing = rlp([...fields, bytesFromBigint(chainId), new Uint8Array(), new Uint8Array()]);
   const sig = secp256k1.sign(keccak_256(signing), account.priv);
-  const v = TESTNET_CHAIN_ID * 2n + 35n + BigInt(sig.recovery);
+  const v = chainId * 2n + 35n + BigInt(sig.recovery);
   const raw = rlp([...fields, bytesFromBigint(v), bytesFromBigint(sig.r), bytesFromBigint(sig.s)]);
   return ("0x" + bytesToHex(raw)) as Hex;
 }

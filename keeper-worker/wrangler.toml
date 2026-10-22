@@ -5,9 +5,13 @@ main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
 [triggers]
-crons = ["* * * * *"]
+# The minute cron is the live v2 keeper. */10 is a no-op while PROTOCOL=v2.
+# A v3 deploy should set PROTOCOL = "v3" and can drop the minute cron.
+crons = ["* * * * *", "*/10 * * * *"]
 
 [vars]
+PROTOCOL = "v2"
+EPOCH_SEC = "600"
 CHAIN_ID = "998"
 RPC_URL = "https://rpc.hyperliquid-testnet.xyz/evm"
 INFO_API = "https://api.hyperliquid-testnet.xyz/info"

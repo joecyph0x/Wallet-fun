@@ -10,7 +10,7 @@
  * 60s heartbeat, so a one-minute cron is the same granularity the chain already
  * enforces. Signing uses @noble/curves directly so the isolate does not load viem.
  */
-import { SEL, SETTLED_TOPIC } from "./abi.js";
+import { SEL, SETTLED_TOPIC, SETTLED_TOPIC_V3 } from "./abi.js";
 import {
   accountValue6,
   assertTestnet,
@@ -25,6 +25,17 @@ import {
 } from "./decide.js";
 import { pickLatestLog, settleAgeSec, type LogRow } from "./health.js";
 import { accountFrom, encodeSettle, SETTLE_GAS, signLegacy, type Hex, type KeeperAccount } from "./sign.js";
+import {
+  assertV3Chain,
+  assetsForWhale,
+  chunkBy,
+  encodeSettleMany,
+  isDue,
+  marketsPerTx,
+  settleManyGas,
+  shouldRun,
+  V3_EPOCH_SEC,
+} from "./v3.js";
 
 type Address = Hex;
 
@@ -38,6 +49,9 @@ export interface Env {
   IDLE_HEARTBEAT_SEC: string;
   HEARTBEAT_SEC: string;
   MAX_TX_PER_RUN: string;
+  /** "v2" (default) keeps the testnet minute cron. "v3" runs settleMany on the slow cron. */
+  PROTOCOL?: string;
+  EPOCH_SEC?: string;
 }
 
 type RpcCall = { method: string; params: unknown[] };
@@ -441,12 +455,143 @@ async function latestKeeperTx(
       fromBlock: "0x" + from.toString(16),
       toBlock: "latest",
       address: markets.map((row) => row.market),
-      topics: [SETTLED_TOPIC, null, "0x" + word(BigInt(keeper))],
+      topics: [(env.PROTOCOL || "v2") === "v3" ? SETTLED_TOPIC_V3 : SETTLED_TOPIC, null, "0x" + word(BigInt(keeper))],
     }],
   }], budget);
   if (rows[0]?.error) throw new Error(rows[0].error.message || "eth_getLogs failed");
   if (!Array.isArray(rows[0]?.result)) throw new Error("eth_getLogs failed");
   return pickLatestLog(rows[0].result as LogRow[]);
+}
+
+function assertKeeperChain(env: Env, chainId: number): void {
+  if ((env.PROTOCOL || "v2") === "v3") assertV3Chain(chainId);
+  else assertTestnet(chainId);
+}
+
+async function runV3(env: Env): Promise<Report> {
+  const report = emptyReport();
+  const budget = { n: 0 };
+  try {
+    assertV3Chain(Number(env.CHAIN_ID));
+    const account = accountFrom(env.KEEPER_PRIVATE_KEY || "");
+    report.keeper = account.address;
+    const floor = minGasWei(env.MIN_GAS_HYPE || "0.005");
+    const epochSec = Number(env.EPOCH_SEC || String(V3_EPOCH_SEC));
+
+    const head = await rpcBatch(env, [
+      { method: "eth_chainId", params: [] },
+      { method: "eth_getBalance", params: [account.address, "latest"] },
+      { method: "eth_getTransactionCount", params: [account.address, "pending"] },
+      { method: "eth_getTransactionCount", params: [account.address, "latest"] },
+      { method: "eth_gasPrice", params: [] },
+    ], budget);
+    const chainId = Number(resultOf(head[0], "eth_chainId"));
+    assertV3Chain(chainId);
+    report.chainId = chainId;
+    const balance = u256(resultOf(head[1], "balance")) ?? 0n;
+    report.balanceHype = formatHype(balance);
+    const pending = Number(u256(resultOf(head[2], "pending nonce")) ?? 0n);
+    const latest = Number(u256(resultOf(head[3], "latest nonce")) ?? 0n);
+    const gasPrice = u256(resultOf(head[4], "gasPrice")) ?? 0n;
+    console.log(`[v3] keeper=${account.address} chain=${chainId} balance=${report.balanceHype} HYPE`);
+
+    if (!gasOk(balance, floor)) {
+      report.lowGas = true;
+      report.ok = false;
+      console.log(`LOW_GAS balance=${report.balanceHype} HYPE`);
+      report.lastRun = new Date().toISOString();
+      return report;
+    }
+
+    const listed = await loadMarkets(env, budget);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const viewCalls: RpcCall[] = [];
+    for (const row of listed) {
+      viewCalls.push({ method: "eth_call", params: [{ to: row.market, data: SEL.lastSettleTs }, "latest"] });
+      viewCalls.push({ method: "eth_call", params: [{ to: row.market, data: SEL.memberCount }, "latest"] });
+      viewCalls.push({ method: "eth_call", params: [{ to: row.market, data: SEL.dexCount }, "latest"] });
+    }
+    const views = viewCalls.length ? await rpcBatch(env, viewCalls, budget) : [];
+    const map = await perps(env, budget);
+    const ready: { market: Address; whale: Address; assets: { memberIndex: number; perp: number }[] }[] = [];
+
+    for (let i = 0; i < listed.length; i++) {
+      const row = listed[i]!;
+      report.considered += 1;
+      const last = u256(views[i * 3]?.result);
+      const members = views[i * 3 + 1]?.error ? undefined : u256(views[i * 3 + 1]?.result);
+      const dexes = views[i * 3 + 2]?.error ? undefined : u256(views[i * 3 + 2]?.result);
+      if (last === undefined) {
+        report.errors.push(`${row.market} lastSettleTs unreadable`);
+        continue;
+      }
+      if (!isDue(last, nowSec, epochSec)) {
+        report.skippedIdle += 1;
+        continue;
+      }
+      if (members !== 1n || dexes !== 1n || !map) {
+        report.errors.push(`${row.market} book is not a single dex-0 account`);
+        continue;
+      }
+      const state = await info<{ assetPositions?: { position: { coin: string; szi: string } }[] }>(
+        env,
+        { type: "clearinghouseState", user: row.whale },
+        budget,
+      );
+      if (!state) {
+        report.errors.push(`${row.market} info API unavailable`);
+        continue;
+      }
+      const built = assetsForWhale(
+        map,
+        (state.assetPositions ?? []).map((p) => p.position),
+      );
+      if (built.unknown.length) {
+        report.errors.push(`${row.market} unknown coin ${built.unknown.join(",")}`);
+        continue;
+      }
+      ready.push({ market: row.market, whale: row.whale, assets: built.assets });
+    }
+
+    const chunks = chunkBy(ready, marketsPerTx());
+    console.log(`[v3 due] markets=${ready.length} txs=${chunks.length}`);
+    for (const chunk of chunks) {
+      const nonce = takeNonce(pending, latest);
+      try {
+        const data = encodeSettleMany(
+          chunk.map((row) => row.market),
+          chunk.map((row) => row.assets),
+        );
+        const raw = signLegacy(account, {
+          nonce,
+          gasPrice,
+          gas: settleManyGas(chunk.length),
+          to: env.REGISTRY,
+          data,
+          chainId: BigInt(chainId),
+        });
+        const rows = await rpcBatch(env, [{ method: "eth_sendRawTransaction", params: [raw] }], budget);
+        const hash = resultOf(rows[0], "eth_sendRawTransaction");
+        for (const row of chunk) {
+          report.settled.push({ market: row.market, whale: row.whale, hash, reason: "epoch" });
+        }
+        console.log(`[v3 sent] ${chunk.length} markets ${hash} nonce=${nonce}`);
+      } catch (err) {
+        rewindNonce(nonce);
+        const line = message(err);
+        report.errors.push(line);
+        console.log(`[v3 revert] ${line}`);
+      }
+    }
+    report.ok = report.errors.length === 0;
+  } catch (err) {
+    const line = message(err);
+    report.ok = false;
+    report.errors.push(line);
+    console.log(`[v3 error] ${line}`);
+  }
+  report.lastRun = new Date().toISOString();
+  return report;
 }
 
 async function health(env: Env): Promise<HealthBody> {
@@ -465,7 +610,7 @@ async function health(env: Env): Promise<HealthBody> {
   };
   const budget = { n: 0 };
   try {
-    assertTestnet(Number(env.CHAIN_ID));
+    assertKeeperChain(env, Number(env.CHAIN_ID));
     if (!env.KEEPER_PRIVATE_KEY) throw new Error("KEEPER_PRIVATE_KEY is not set");
     const account = accountFrom(env.KEEPER_PRIVATE_KEY);
     body.keeper = account.address;
@@ -477,7 +622,7 @@ async function health(env: Env): Promise<HealthBody> {
       { method: "eth_blockNumber", params: [] },
     ], budget);
     const chainId = Number(resultOf(head[0], "eth_chainId"));
-    assertTestnet(chainId);
+    assertKeeperChain(env, chainId);
     body.chainId = chainId;
     body.balanceHype = formatHype(u256(resultOf(head[1], "balance")) ?? 0n);
     body.nonce = Number(u256(resultOf(head[2], "nonce")) ?? 0n);
@@ -531,7 +676,10 @@ export default {
     if (req.method === "GET" && url.pathname === "/health") return json(await health(env));
     return new Response("not found", { status: 404 });
   },
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(run(env).catch((err) => console.log(`[error] ${message(err)}`)));
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const which = shouldRun(env.PROTOCOL, event.cron);
+    if (which === "skip") return;
+    const job = which === "v3" ? runV3(env) : run(env);
+    ctx.waitUntil(job.catch((err) => console.log(`[error] ${message(err)}`)));
   },
 };
