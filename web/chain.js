@@ -276,13 +276,17 @@
   }
 
   function ensureGeo() {
+    if (!V3.geoActive(cfg && cfg.network)) {
+      geo = { blocked: false, pending: false, notice: "" };
+      return Promise.resolve(geo);
+    }
     if (!geoPromise) geoPromise = lookupGeo();
     return geoPromise;
   }
 
   async function lookupGeo() {
     const code = await countryCode();
-    const decision = V3.decideGeo(code);
+    const decision = V3.gateGeo("mainnet", code);
     if (!decision.blocked) geo = { blocked: false, pending: false, notice: "", country: code };
     else if (decision.reason === "region") {
       geo = { blocked: true, pending: false, notice: "Not offered in the UK, the US, or their territories. Browsing is fine. Connecting and betting stay off.", country: code };
@@ -366,6 +370,9 @@
       if (geo.blocked) {
         geoWrap.style.display = "";
         geoEl.textContent = geo.notice;
+      } else if (cfg && !V3.geoActive(cfg.network)) {
+        geoWrap.style.display = "";
+        geoEl.textContent = V3.TESTNET_GEO_NOTE;
       } else geoWrap.style.display = "none";
     }
     view.paused = pausedFlag;

@@ -73,7 +73,7 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 v3 pots are read from the public RPC for every visitor. No wallet is required to see them. The wallet is required to approve tUSDC, deposit into the registry, and commit a TAIL or FADE bet. A commit fills at next settle (~10–20 min), with a 10 USDC minimum and one pending order per wallet. Cancel before that settle keeps the 0.5% fee. Buy, sell, and Claim all sample the market when the epoch is due, then apply the caller's fill. If the RPC read fails, or the node reports a chain id other than the config's, the page keeps the in-browser preview and the yellow banner says so. `web/config/testnet-v3.json` is a symlink to `contracts/deployments/testnet-v3.json`. A wallet in the active network that the page does not already know is added to the grid. A zero address is still a placeholder. Mainnet registry, beacon, market implementation, and markets are still zero.
 
-The Balance screen approves USDC and then deposits it. Withdraw uses the registry balance and stays available while buys are paused. On testnet, Get test USDC calls `faucet(amount)` on tUSDC (`0xAbef3ab9E36a5dC9416981cA29410bdFaA636490`), at most 1,000 tUSDC (`1000000000`) per call. `mint(to, amount)` has the same cap. Mainnet has no faucet. A pause disables buys only. After 72 hours the coin screen offers pro-rata redeem at the last NAV. Visitors in GB, the UK, the US, and their territories cannot connect or bet. The check tries `/cdn-cgi/trace`, then `get.geojs.io`, then `api.country.is`. If every lookup fails, connecting and betting stay off. Browsing stays open. Season 0 points accrue on real volume and could count toward a possible future airdrop. Nothing is promised.
+The Balance screen approves USDC and then deposits it. Withdraw uses the registry balance and stays available while buys are paused. On testnet, Get test USDC calls `faucet(amount)` on tUSDC (`0xAbef3ab9E36a5dC9416981cA29410bdFaA636490`), at most 1,000 tUSDC (`1000000000`) per call. `mint(to, amount)` has the same cap. Mainnet has no faucet. A pause disables buys only. After 72 hours the coin screen offers pro-rata redeem at the last NAV. The UK and US block applies only when `network` is `"mainnet"`. On testnet there is no geo lookup, and visitors in those countries can connect, use the faucet, and bet. Mainnet tries `/cdn-cgi/trace`, then `get.geojs.io`, then `api.country.is`, and fails closed if every lookup fails. Browsing stays open either way. Season 0 points accrue on real volume and could count toward a possible future airdrop. Nothing is promised.
 
 ```bash
 node --test web/v3abi.test.js
@@ -103,7 +103,7 @@ Season 0 earns nothing. Points are play money, the builder address is a placehol
 3. **Paid or featured listings.** A later season could charge to list or pin a wallet. Season 0 listings are free and curated.
 4. **Sponsorships.** A ticker, a card, or the share image could carry a sponsor. None are sold in Season 0.
 
-Real money needs legal advice before any of those lines is switched on. The owner is in the UK. The site blocks connecting and betting in the UK, the US, and their territories. Browsing stays open.
+Real money needs legal advice before any of those lines is switched on. The owner is in the UK. On mainnet the site blocks connecting and betting in the UK, the US, and their territories, and fails closed if the region cannot be read. Testnet does not. Browsing stays open.
 
 ## Keeper
 

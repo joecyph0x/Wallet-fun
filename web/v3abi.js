@@ -218,11 +218,27 @@
     return BLOCKED.has(String(code).trim().toUpperCase());
   }
 
+  const TESTNET_GEO_NOTE = "Testnet is open in every region. Real-money play will not be available in the UK, the US, or their territories.";
+
+  /** The lookup and the block run only when the config switch is mainnet. */
+  function geoActive(network) {
+    return network === "mainnet";
+  }
+
   /** Missing country fails closed. Browsing is a separate decision in the page. */
   function decideGeo(code) {
     if (!code) return { blocked: true, reason: "unknown" };
     if (isBlocked(code)) return { blocked: true, reason: "region" };
     return { blocked: false, reason: "ok" };
+  }
+
+  /**
+   * Testnet (and any non-mainnet value) is open with no country required.
+   * Mainnet uses decideGeo and fails closed when the country is missing.
+   */
+  function gateGeo(network, code) {
+    if (!geoActive(network)) return { blocked: false, reason: "testnet" };
+    return decideGeo(code);
   }
 
   /** tUSDC faucet cap is 1,000 tokens (6 decimals) per call. Larger config values clamp. */
@@ -246,6 +262,7 @@
     UNIT: UNIT,
     FAUCET_CAP: FAUCET_CAP,
     SEASON: SEASON,
+    TESTNET_GEO_NOTE: TESTNET_GEO_NOTE,
     BLOCKED: BLOCKED,
     SEL: SEL,
     ERRORS: ERRORS,
@@ -269,6 +286,8 @@
     parseGeoJson: parseGeoJson,
     isBlocked: isBlocked,
     decideGeo: decideGeo,
+    geoActive: geoActive,
+    gateGeo: gateGeo,
     feeText: feeText,
   };
 });
