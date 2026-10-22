@@ -102,8 +102,8 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 </head>
 <body>
 <canvas id="bgwaves" aria-hidden="true"></canvas>
-<div class="poc"><div id="pocBanner">SEASON 0 — points accrue on real volume and could count toward a possible future airdrop. No promises.</div></div>
-<div class="tn"><div id="testnetNotice">TESTNET — chain 998. TAIL and FADE bets are USDC and fill at the next settle (~10 min).</div></div>
+<div class="poc"><div id="pocBanner">Season 0 points accrue on real volume. They could count toward a possible future airdrop. No promises.</div></div>
+<div class="tn"><div id="testnetNotice">TESTNET — chain 998. TAIL and FADE bets are USDC. Fills at next settle (~10–20 min).</div></div>
 <div class="tn" id="geoWrap" style="display:none"><div id="geoNotice"></div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
@@ -460,16 +460,16 @@ function card(w){
 function home(){
   const live=WALLETS.filter(w=>S.w[w.tk].status==='live'),sl=WALLETS.filter(w=>S.w[w.tk].status!=='live');
   const sortLive=[...live].sort((a,b)=>Math.abs(S.w[b.tk].pend/S.w[b.tk].eRef)-Math.abs(S.w[a.tk].pend/S.w[a.tk].eRef));
-  return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC and fill at the next settle (~10 min).</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>${S.settleN} settlements this session</small></div></div>
+  return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC. Fills at next settle (~10–20 min).</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>${S.settleN} settlements this session</small></div></div>
   <div class="grid">${sortLive.map(card).join('')}${sl.map(card).join('')}</div>`;
 }
 function pendingBlock(tk){
-  if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet. An order fills at the next settle (~10 min).</p>';
+  if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet. An order fills at next settle (~10–20 min).</p>';
   const p=WW.pending(tk);const fee=(WW.view()&&WW.view().feeText)||'0.5%';
   if(!p||!p.legs.length) return '<p class="note">No pending order.</p>';
   const bits=p.legs.map(l=>{const side=l.side==='T'?'TAIL':'FADE';return l.kind==='buy'?`${esc(l.text)} USDC → ${side}`:`sell ${esc(l.text)} ${side}`});
   const cancel=p.canCancel?` <a href="javascript:WW.cancel('${tk}')" style="color:var(--c)">cancel · ${esc(fee)} fee</a>`:'';
-  const note=p.canCancel?`fills at next settle (~10 min). Cancel keeps the ${esc(fee)} fee.`:'The settle window is open, so this order can no longer be cancelled. Claim fills it.';
+  const note=p.canCancel?`fills at next settle (~10–20 min). Cancel keeps the ${esc(fee)} fee.`:'The settle window is open, so this order can no longer be cancelled. Claim fills it.';
   return `<div class="queue">⏳ ${bits.join(', ')}${cancel}<div class="note">${note}</div></div>`;
 }
 function tradeBox(tk,w){
@@ -487,7 +487,7 @@ function tradeBox(tk,w){
   const sellF=live&&WW.canSell(tk,'F');
   const link=s=>`<a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`;
   const act=geo?'disabled':'';
-  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b> · minimum 10 USDC · one pending order per wallet · fills at next settle (~10 min). <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
+  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b> · minimum 10 USDC · one pending order per wallet · fills at next settle (~10–20 min). <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
   ${paused?`<p class="note">Buys are paused. Sell and withdraw stay open. ${esc(WW.pauseNote())}</p>`:''}
   ${st==='redeem-only'?'<p class="note">This whale opted out. New buys are closed. Sells still fill at the next settle.</p>':''}
   <input id="amt" type="number" min="10" step="1" value="10" style="margin-top:8px">
@@ -501,7 +501,7 @@ function tradeBox(tk,w){
 }
 function detail(tk){
   const w=byTk[tk];if(!w)return home();const x=S.w[tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;
-  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10 min)</small></div></div>
+  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>
   <div class="kp" style="margin-bottom:14px"><div><div class="lbl">Equity (live)</div><div class="big2">${usd(x.eq)}</div></div><div><div class="lbl">Open notional</div><div class="big2">${usd(x.ntl)}</div><small class="note">${x.eq?(x.ntl/x.eq).toFixed(1)+'x effective':''}</small></div><div><div class="lbl">Unsettled PnL (this min)</div><div class="big2 ${cls(x.pend)}">${usd(x.pend)}</div><small class="note">${pct(x.pend/Math.max(x.eRef,1),3)} of E_ref</small></div><div><div class="lbl">24h PnL (HL portfolio)</div><div class="big2 ${cls(x.pnl24)}">${usd(x.pnl24)}</div></div></div>
   <div class="dgrid"><div>
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
@@ -565,7 +565,7 @@ function drawCard(){
   ctx.fillText(quip,60,475);
   const top=x.pos[0];ctx.font='22px JetBrains Mono, monospace';ctx.fillStyle='#8a8aa8';
   ctx.fillText(`whale equity ${usd(x.eq)}${top?` · ${top.szi>0?'LONG':'SHORT'} ${top.coin} ${usd(top.ntl)}${top.lev?' @'+top.lev+'x':''}`:''}`,60,520);
-  ctx.fillText(`TAIL ${nav(x,'T').toFixed(4)} · FADE ${nav(x,'F').toFixed(4)} · next settle ~10 min`,60,555);
+  ctx.fillText(`TAIL ${nav(x,'T').toFixed(4)} · FADE ${nav(x,'F').toFixed(4)} · fills at next settle (~10–20 min)`,60,555);
   // sparkline
   const h=x.hist.slice(-120);if(h.length>1){const k=s==='T'?'tp':'fp';const ys=h.map(q=>q[k]);let mn=Math.min(...ys),mx=Math.max(...ys);if(mx-mn<1e-6){mx+=.001;mn-=.001}ctx.strokeStyle=acc;ctx.lineWidth=5;ctx.shadowColor=acc;ctx.shadowBlur=18;ctx.beginPath();h.forEach((q,i)=>{const X=760+i/(h.length-1)*390,Y=400-(q[k]-mn)/(mx-mn)*150;i?ctx.lineTo(X,Y):ctx.moveTo(X,Y)});ctx.stroke();ctx.shadowBlur=0}
   ctx.fillStyle='#ffffff10';rr(ctx,0,600,W,75,0);ctx.fill();ctx.fillStyle='#e9e9ff';ctx.font='700 24px JetBrains Mono, monospace';ctx.fillText('@'+($('#cH').value||'anon'),60,647);
@@ -584,14 +584,14 @@ function balance(){
   const committed=v.committed||'0';
   const wMax=(wallet!=='—'?wallet:'0').replace(/[^0-9.]/g,'')||'0';
   const dMax=(wd!=='—'?wd:'0').replace(/[^0-9.]/g,'')||'0';
-  return `<div class="hero"><div><h1>Balance</h1><p>Approve USDC, then deposit it into the registry. Withdraw sends your withdrawable balance back to your wallet. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>bets fill at the next settle (~10 min)</small></div></div>
+  return `<div class="hero"><div><h1>Balance</h1><p>Approve USDC, then deposit it into the registry. Withdraw sends your withdrawable balance back to your wallet. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>
   <div class="dgrid"><div class="panel"><h3>Deposit</h3>
     <div class="note">Wallet USDC: <b class="pts">${esc(wallet)}</b></div>
     <div class="note">Approved for the registry: <b>${esc(al)}</b></div>
     <input id="depAmt" type="number" min="1" step="1" value="100" style="margin-top:8px">
     <div class="quick">${[10,100,1000,'MAX'].map(n=>`<span onclick="setField('depAmt','${n}','${wMax}')">${n}</span>`).join('')}</div>
     <div class="btns"><button class="bg" ${dis} onclick="WW.approve()">Approve USDC</button><button class="bt" ${dis} onclick="WW.deposit()">Deposit</button></div>
-    ${v.faucet?`<button class="by" style="width:100%;margin-top:10px" ${dis} onclick="WW.faucet()">Get test USDC</button><p class="note">Testnet only. This calls mint on the mock USDC. It is not mainnet Circle USDC.</p>`:''}
+    ${v.faucet?`<button class="by" style="width:100%;margin-top:10px" ${dis} onclick="WW.faucet()">Get test USDC</button><p class="note">Testnet only. This calls faucet on tUSDC, at most 1,000 per click. It is not mainnet Circle USDC.</p>`:''}
     ${v.configured?'':`<p class="note">Registry and USDC addresses are placeholders until the testnet deploy is written into config/testnet-v3.json.</p>`}
   </div><div class="panel"><h3>Withdraw</h3>
     <div class="note">Withdrawable: <b class="pts">${esc(wd)} USDC</b></div>
@@ -606,7 +606,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>1. Every tracked Hyperliquid wallet has two sides: <b class="up">TAIL</b> (you think the whale wins) and <b class="dn">FADE</b> (you think they get rekt). Each side has a pot.</p>
 <p>2. About every <b>10 minutes</b> a settle reads the whale's positions and marks. PnL = Σ size × Δmark. Deposits and withdrawals do not move it.</p>
 <p>3. r = PnL ÷ reference equity, capped at ±25% per settle and inside a ±50% UTC-day budget. The pot moved = r × min(TAIL pot, FADE pot, 25% × equity). A one-sided pot does not pay itself.</p>
-<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It <b>fills at the next settle (~10 min)</b>. Cancel before that settle keeps a 0.5% fee.</p>
+<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It <b>fills at next settle (~10–20 min)</b>. Cancel before that settle keeps a 0.5% fee.</p>
 <p>5. A pause stops new buys. Sell, claim, cancel, and withdraw stay open. After 72 hours, pro-rata redeem pays the last NAV with no new sample.</p>
 <p>6. Wallet owners can opt out by signing a message. ${esc(V3.SEASON)} This page is not offered in the UK, the US, or their territories. Copy the whale opens that coin on Hyperliquid. It does not place the order.</p>
 </div>`}

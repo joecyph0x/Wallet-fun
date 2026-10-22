@@ -337,8 +337,8 @@
     if (!cfg) return where + " config/testnet-v3.json did not load, so pots stay on the browser preview.";
     if (!configured()) return where + " v3 addresses are placeholders in config/testnet-v3.json, so these pots are a browser preview until the testnet deploy is filled in." + pause;
     if (potsFailed && !potsLive) return "Could not read the v3 pots, so this page is a browser preview." + pause;
-    if (live()) return where + " Withdrawable USDC sits in the registry. TAIL and FADE fill at the next settle (~10 min). Minimum 10 USDC. One pending order per wallet." + pause;
-    if (potsLive) return where + " Live v3 pots. Connect a wallet to deposit USDC and bet. Fills at the next settle (~10 min)." + pause;
+    if (live()) return where + " Withdrawable USDC sits in the registry. Fills at next settle (~10–20 min). Minimum 10 USDC. One pending order per wallet." + pause;
+    if (potsLive) return where + " Live v3 pots. Connect a wallet to deposit USDC and bet. Fills at next settle (~10–20 min)." + pause;
     return where + " Market addresses are still placeholders, so these pots are a browser preview." + pause;
   }
 
@@ -357,7 +357,7 @@
       }
     }
     const banner = document.querySelector("#pocBanner");
-    if (banner) banner.textContent = "SEASON 0 — " + V3.SEASON;
+    if (banner) banner.textContent = V3.SEASON;
     const notice = document.getElementById("testnetNotice");
     if (notice) notice.textContent = noticeText();
     const geoEl = document.getElementById("geoNotice");
@@ -727,7 +727,7 @@
       try {
         const assets = await assetsFor(market);
         await send(market, V3.encodeBuy(sideN, raw, assets));
-        toast("Committed " + V3.formatUnits(raw) + " USDC → " + (side === "T" ? "TAIL" : "FADE") + ". Fills at the next settle (~10 min).");
+        toast("Committed " + V3.formatUnits(raw) + " USDC → " + (side === "T" ? "TAIL" : "FADE") + ". Fills at next settle (~10–20 min).");
         await refresh();
       } catch (e) { toast(explain(e)); }
       finally { busy = false; }
@@ -740,7 +740,7 @@
     try {
       const assets = await assetsFor(market);
       await send(market, V3.encodeSell(sideN, raw, assets));
-      toast("Committed a sell. It fills at the next settle (~10 min). USDC returns to your withdrawable balance.");
+      toast("Committed a sell. Fills at next settle (~10–20 min). USDC returns to your withdrawable balance.");
       await refresh();
     } catch (e) { toast(explain(e)); }
     finally { busy = false; }
@@ -839,11 +839,11 @@
     if (!(await ready("faucet"))) return;
     if (!cfg.faucet) return toast("The faucet is only on testnet.");
     if (!V3.isSet(cfg.usdc)) return toast(missing("usdc"));
-    const amt = BigInt(cfg.faucetAmount);
+    const amt = V3.faucetRaw(cfg.faucetAmount);
     busy = true;
     try {
-      await send(cfg.usdc, V3.encodeAddrUint(V3.SEL.mint, account, amt));
-      toast("Minted " + V3.formatUnits(amt) + " test USDC to your wallet. It is not mainnet USDC.");
+      await send(cfg.usdc, V3.encodeUint(V3.SEL.faucet, amt));
+      toast("Sent " + V3.formatUnits(amt) + " tUSDC to your wallet. At most 1,000 per call. It is not mainnet USDC.");
       await refresh();
     } catch (e) { toast(explain(e)); }
     finally { busy = false; }

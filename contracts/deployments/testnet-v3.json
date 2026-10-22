@@ -1,12 +1,12 @@
 {
   "network": "testnet",
-  "note": "Single switch. \"testnet\" is HyperEVM chain 998. Set network to \"mainnet\" only after chain 999 addresses are filled in. Zero addresses are placeholders for the separate testnet deploy. Do not put keys in this file.",
+  "note": "Single switch. \"testnet\" is HyperEVM chain 998. Set network to \"mainnet\" only after chain 999 addresses are filled in. Testnet registry, tUSDC, beacon, market implementation, and markets are the chain 998 deploy. Mainnet registry and markets stay zero until that deploy. Do not put keys in this file.",
   "minOrderUsdc": "10",
   "cancelFeeBps": 50,
   "epochSec": 600,
   "exitDelaySec": 259200,
   "usdcDecimals": 6,
-  "faucetAmount": "10000000000",
+  "faucetAmount": "1000000000",
   "dexNames": {
     "0": "",
     "1": "xyz"
@@ -32,99 +32,94 @@
         "decimals": 18
       },
       "faucet": true,
-      "usdc": "0x0000000000000000000000000000000000000000",
-      "registry": "0x0000000000000000000000000000000000000000",
-      "marketImplementation": "0x0000000000000000000000000000000000000000",
-      "beacon": "0x0000000000000000000000000000000000000000",
-      "placeholders": {
-        "usdc": "PLACEHOLDER_MOCK_USDC",
-        "registry": "PLACEHOLDER_REGISTRY",
-        "marketImplementation": "PLACEHOLDER_MARKET_IMPLEMENTATION",
-        "beacon": "PLACEHOLDER_BEACON"
-      },
+      "usdc": "0xAbef3ab9E36a5dC9416981cA29410bdFaA636490",
+      "registry": "0x896E8B5952f48205F032224311ba55D5C0a42F3F",
+      "marketImplementation": "0x63325b2c55c542e455e2c7337975426f9ba3441b",
+      "beacon": "0xb8e0d34fa581140d9e04a71aa49bfc77790b0765",
+      "placeholders": {},
       "wallets": [
         {
           "ticker": "MACHI",
           "name": "Machi Big Brother",
           "whale": "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0xa91f606e330fe6a000bec3dbded51cd8b550f5af",
           "marketPlaceholder": "PLACEHOLDER_MARKET_MACHI"
         },
         {
           "ticker": "BOBBY",
           "name": "BobbyBigSize",
           "whale": "0x7fdafde5cfb5465924316eced2d3715494c517d1",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0xee7f80c71066266a27b0bfaa611f0ae360bb478d",
           "marketPlaceholder": "PLACEHOLDER_MARKET_BOBBY"
         },
         {
           "ticker": "HLP",
           "name": "HLP Vault",
           "whale": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x0a4566d047837db407d604ac1d2a229190b38a32",
           "marketPlaceholder": "PLACEHOLDER_MARKET_HLP"
         },
         {
           "ticker": "FAUVES",
           "name": "2 fr\u00e8res 2 fauves",
           "whale": "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x182f0fa8e23b9ae9ae438fe0d2ed8e46a73efbe6",
           "marketPlaceholder": "PLACEHOLDER_MARKET_FAUVES"
         },
         {
           "ticker": "NMTD",
           "name": "NMTD",
           "whale": "0xf517639a8872e756ac98d3c65507d2ebc25cc032",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x49159739ed5ba3e1a50254648bba377c78fcfe27",
           "marketPlaceholder": "PLACEHOLDER_MARKET_NMTD"
         },
         {
           "ticker": "SILK",
           "name": "x.com/SilkBtc",
           "whale": "0x880ac484a1743862989a441d6d867238c7aa311c",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0xae158c9673ee37505502440b0dac17f55cbf43f3",
           "marketPlaceholder": "PLACEHOLDER_MARKET_SILK"
         },
         {
           "ticker": "JEFF",
           "name": "we love u jeff",
           "whale": "0x1367df28c0681431b8a8f3d887576a1cad85560e",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x401bd3430b955b581c3e470739f0c9f307ce89a9",
           "marketPlaceholder": "PLACEHOLDER_MARKET_JEFF"
         },
         {
           "ticker": "CATHOT",
           "name": "cat hot wallet",
           "whale": "0xcb58b8f5ec6d47985f0728465c25a08ef9ad2c7b",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x7d9dcada8eb4343c30c0487ca5f5a64d69f1a828",
           "marketPlaceholder": "PLACEHOLDER_MARKET_CATHOT"
         },
         {
           "ticker": "PURRINA",
           "name": "PURRINA Pro Plan",
           "whale": "0x0871deb34bfd2052b1c10dc4f6c0912a2a47e927",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0xddce12573e659b4a5813dd671af4b6a395c0262a",
           "marketPlaceholder": "PLACEHOLDER_MARKET_PURRINA"
         },
         {
           "ticker": "FUMBLER",
           "name": "perpfumbler",
           "whale": "0x523852be2db1a76a0e088ecbff32e849544054e5",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x81b7abf9e57df7495a94b06577b50bdc80c58af7",
           "marketPlaceholder": "PLACEHOLDER_MARKET_FUMBLER"
         },
         {
           "ticker": "WYNN",
           "name": "James Wynn",
           "whale": "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x3ff4d1f682574b427261dff03267475a6a51573e",
           "marketPlaceholder": "PLACEHOLDER_MARKET_WYNN"
         },
         {
           "ticker": "DEMO",
           "name": "Demo Whale",
           "whale": "0x6dd538c00055d7ea6d451b97a94e463e8ce89519",
-          "market": "0x0000000000000000000000000000000000000000",
+          "market": "0x6512ad0705f4793c5842529b848edcbb8b18a746",
           "marketPlaceholder": "PLACEHOLDER_MARKET_DEMO",
           "testnetOnly": true
         }

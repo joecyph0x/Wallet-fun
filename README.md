@@ -2,7 +2,7 @@
 
 Every Hyperliquid wallet is a memecoin. TAIL it or FADE it.
 
-The site targets the v3 USDC markets. Addresses are read from `contracts/deployments/testnet-v3.json`, which the page loads as `config/testnet-v3.json`. `network` is the only chain switch: it stays `"testnet"` (HyperEVM 998) until someone sets `"mainnet"` (999). Those addresses are placeholders until a separate testnet deploy fills them in. No keys belong in that file.
+The site targets the v3 USDC markets. Addresses are read from `contracts/deployments/testnet-v3.json`, which the page loads as `config/testnet-v3.json`. `network` is the only chain switch: it stays `"testnet"` (HyperEVM 998) until someone sets `"mainnet"` (999). The testnet registry, tUSDC, and twelve markets in that file are the chain 998 deploy. Mainnet registry and markets stay zero until that deploy. The page does not read the v2 registry. No keys belong in that file.
 
 Season 0 on the deployed v2 contracts is still play points. Each curated wallet has two sides that share one pot. On settlement, points move from the losing side to the winning side by the whale's mark-to-market PnL, read on HyperEVM from HyperCore. Players queue buys and sells, and those orders fill at the next settlement price. Each market is seeded with house play points on both sides, so a one-sided crowd still has a counterparty. The house does not trade, claim, or take a fee. Copy the whale is a link to Hyperliquid, not an order from this site.
 
@@ -71,9 +71,9 @@ CI runs that same command. It does not run the deploy script and it does not tal
 
 `web/index.html` keeps the Season 0 look: TAIL `#39FF88`, FADE `#FF2E88`, the wave background, and Copy the whale only on the coin trade screen. Each card and wallet page shows the implied multiple for the current pot split, such as `FADE pays 4.2x`, which is `(TAIL pot + FADE pot) / FADE pot`. Curated whale equity, positions, and marks come from mainnet `api.hyperliquid.xyz`. A row with `testnetOnly: true` is read from the active network's `infoApi` instead. DEMO is the testnet-only whale and is listed only on the testnet side of the v3 config.
 
-v3 pots are read from the public RPC for every visitor once a market address is filled in. No wallet is required to see them. The wallet is required to approve USDC, deposit into the registry, and commit a TAIL or FADE bet. A commit fills at the next settle, about 10 minutes, with a 10 USDC minimum and one pending order per wallet. Cancel before that settle keeps the 0.5% fee. Buy, sell, and Claim all sample the market when the epoch is due, then apply the caller's fill. If the RPC read fails, or the node reports a chain id other than the config's, the page keeps the in-browser preview and the yellow banner says so. `web/config/testnet-v3.json` is a symlink to `contracts/deployments/testnet-v3.json`. A wallet in the active network that the page does not already know is added to the grid. Zero addresses are placeholders, named `PLACEHOLDER_REGISTRY`, `PLACEHOLDER_MOCK_USDC`, `PLACEHOLDER_MARKET_IMPLEMENTATION`, `PLACEHOLDER_BEACON`, and `PLACEHOLDER_MARKET_<TICKER>`.
+v3 pots are read from the public RPC for every visitor. No wallet is required to see them. The wallet is required to approve tUSDC, deposit into the registry, and commit a TAIL or FADE bet. A commit fills at next settle (~10–20 min), with a 10 USDC minimum and one pending order per wallet. Cancel before that settle keeps the 0.5% fee. Buy, sell, and Claim all sample the market when the epoch is due, then apply the caller's fill. If the RPC read fails, or the node reports a chain id other than the config's, the page keeps the in-browser preview and the yellow banner says so. `web/config/testnet-v3.json` is a symlink to `contracts/deployments/testnet-v3.json`. A wallet in the active network that the page does not already know is added to the grid. A zero address is still a placeholder. Mainnet registry, beacon, market implementation, and markets are still zero.
 
-The Balance screen approves USDC and then deposits it. Withdraw uses the registry balance and stays available while buys are paused. On testnet, Get test USDC calls `mint` on the mock USDC. Mainnet has no faucet. A pause disables buys only. After 72 hours the coin screen offers pro-rata redeem at the last NAV. Visitors in GB, the UK, the US, and their territories cannot connect or bet. The check tries `/cdn-cgi/trace`, then `get.geojs.io`, then `api.country.is`. If every lookup fails, connecting and betting stay off. Browsing stays open. Season 0 points accrue on real volume and could count toward a possible future airdrop. Nothing is promised.
+The Balance screen approves USDC and then deposits it. Withdraw uses the registry balance and stays available while buys are paused. On testnet, Get test USDC calls `faucet(amount)` on tUSDC (`0xAbef3ab9E36a5dC9416981cA29410bdFaA636490`), at most 1,000 tUSDC (`1000000000`) per call. `mint(to, amount)` has the same cap. Mainnet has no faucet. A pause disables buys only. After 72 hours the coin screen offers pro-rata redeem at the last NAV. Visitors in GB, the UK, the US, and their territories cannot connect or bet. The check tries `/cdn-cgi/trace`, then `get.geojs.io`, then `api.country.is`. If every lookup fails, connecting and betting stay off. Browsing stays open. Season 0 points accrue on real volume and could count toward a possible future airdrop. Nothing is promised.
 
 ```bash
 node --test web/v3abi.test.js
@@ -179,7 +179,7 @@ At 0.1 gwei and a settle every 10 minutes (144 batches a day), 11 markets that a
 
 `test/v3/V3.t.sol` ports the six v2 attacks. Same-transaction fill does not mint. Settle gas after 1,280 orders does not grow. Dust and a crowd of real orders do not block a sell. Pause does not block a sell or a withdrawal. An instant `setWeighted` reverts, and the move still pays. A 256-run fuzz checks `USDC.balanceOf(registry) == liabilities()` after buys, cancels, sells, and price moves, which is the same statement as "sum of claims cannot exceed USDC held."
 
-The site reads those calls from `config/testnet-v3.json`. It stays on testnet until `network` is `mainnet`. Placeholder addresses are named in that file and are not a deployment.
+The site reads those calls from `config/testnet-v3.json`. It stays on testnet until `network` is `mainnet`. The testnet addresses in that file are the chain 998 deploy. It does not read `web/deployments.json` or the v2 registry.
 
 ## X bot
 
@@ -284,7 +284,7 @@ The eleven public whales have no open testnet positions, so those settlements mo
 
 ## GitHub Pages
 
-`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, and a real copy of `deployments.json` (`cp -L`, because the symlink points outside `web/`). It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
+`.github/workflows/pages.yml` publishes `web/` only: `index.html`, `chain.js`, `v3abi.js`, and a real copy of `config/testnet-v3.json` (`cp -L`, because the symlink points outside `web/`). It does not publish `web/deployments.json`. It refuses the upload if the staged site contains a private-key marker. The workflow does not turn GitHub Pages on. That switch stays in the repo settings.
 
 Cold-launch set, from the design doc's self-set names. Re-check them live before listing. HLP's child addresses are not hardcoded; add them with `addMember` after reading `vaultDetails`.
 

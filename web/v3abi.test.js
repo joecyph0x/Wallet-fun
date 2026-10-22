@@ -12,6 +12,8 @@ test("selectors and buy encoding", () => {
   assert.equal(V3.SEL.deposit, "0xb6b55f25");
   assert.equal(V3.SEL.approve, "0x095ea7b3");
   assert.equal(V3.SEL.mint, "0x40c10f19");
+  assert.equal(V3.SEL.faucet, "0x57915897");
+  assert.equal(V3.encodeUint(V3.SEL.faucet, V3.FAUCET_CAP), V3.SEL.faucet + "0".repeat(56) + "3b9aca00");
   assert.equal(V3.SEL.exitAtLastNav, "0x7b7ef60c");
 
   const buy = V3.encodeBuy(0, 10_000000n, [{ memberIndex: 0, perp: 4 }]);
@@ -35,6 +37,10 @@ test("USDC amounts stay on 6 decimals", () => {
   assert.equal(V3.formatUnits(10_500000n), "10.5");
   assert.equal(V3.formatUnits(10_000000n), "10");
   assert.equal(V3.formatUnits(1n), "0.000001");
+  assert.equal(V3.faucetRaw("1000000000"), 1000000000n);
+  assert.equal(V3.faucetRaw("10000000000"), 1000000000n);
+  assert.equal(V3.faucetRaw("0"), 1000000000n);
+  assert.equal(V3.faucetRaw("nope"), 1000000000n);
 });
 
 test("network switch stays on testnet unless mainnet", () => {
@@ -44,12 +50,17 @@ test("network switch stays on testnet unless mainnet", () => {
   assert.equal(testnet.network, "testnet");
   assert.equal(testnet.chainId, 998);
   assert.equal(testnet.faucet, true);
-  assert.equal(V3.isSet(testnet.registry), false);
-  assert.equal(V3.isSet(testnet.usdc), false);
-  assert.equal(testnet.placeholders.registry, "PLACEHOLDER_REGISTRY");
-  assert.equal(testnet.placeholders.usdc, "PLACEHOLDER_MOCK_USDC");
+  assert.equal(testnet.faucetAmount, "1000000000");
+  assert.equal(testnet.registry, "0x896E8B5952f48205F032224311ba55D5C0a42F3F");
+  assert.equal(testnet.usdc, "0xAbef3ab9E36a5dC9416981cA29410bdFaA636490");
+  assert.equal(testnet.beacon.toLowerCase(), "0xb8e0d34fa581140d9e04a71aa49bfc77790b0765");
+  assert.equal(testnet.marketImplementation.toLowerCase(), "0x63325b2c55c542e455e2c7337975426f9ba3441b");
+  assert.equal(V3.isSet(testnet.registry), true);
+  assert.equal(V3.isSet(testnet.usdc), true);
   assert.ok(testnet.wallets.some((w) => w.ticker === "DEMO" && w.testnetOnly));
-  assert.ok(testnet.wallets.every((w) => !V3.isSet(w.market)));
+  assert.equal(testnet.wallets.length, 12);
+  assert.ok(testnet.wallets.every((w) => V3.isSet(w.market)));
+  assert.equal(testnet.wallets.find((w) => w.ticker === "MACHI").market, "0xa91f606e330fe6a000bec3dbded51cd8b550f5af");
 
   const main = V3.resolve(Object.assign({}, cfg, { network: "mainnet" }));
   assert.equal(main.network, "mainnet");

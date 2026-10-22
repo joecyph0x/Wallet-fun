@@ -9,6 +9,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const ZERO = "0x0000000000000000000000000000000000000000";
   const UNIT = 1000000n;
+  const FAUCET_CAP = 1000000000n;
   const SEASON = "Season 0 points accrue on real volume. They could count toward a possible future airdrop. No promises.";
 
   // GB/UK, US, UK overseas territories, crown dependencies, and US territories.
@@ -26,6 +27,7 @@
     allowance: "0xdd62ed3e",
     approve: "0x095ea7b3",
     mint: "0x40c10f19",
+    faucet: "0x57915897",
     buysPaused: "0x2319835c",
     pauseSince: "0x4bd45cc2",
     feeBps: "0x24a9d853",
@@ -64,6 +66,7 @@
     "0xaf4694c1": "That buy would pass the pot cap.",
     "0x3afc7441": "The position book is incomplete, so the settle was not sent. Wait for the keeper, then claim.",
     "0x90b8ec18": "The USDC transfer failed. Approve the registry, then deposit.",
+    "0xfb3a9d64": "The faucet pays at most 1,000 tUSDC per call.",
     "0xb5dfd9e5": "The contract is busy. Try that again.",
     "0x2678f6aa": "The house account cannot trade.",
   };
@@ -190,7 +193,7 @@
       cancelFeeBps: Number(cfg.cancelFeeBps == null ? 50 : cfg.cancelFeeBps),
       epochSec: Number(cfg.epochSec || 600),
       exitDelaySec: Number(cfg.exitDelaySec || 259200),
-      faucetAmount: String(cfg.faucetAmount || "10000000000"),
+      faucetAmount: String(cfg.faucetAmount || FAUCET_CAP.toString()),
       dexNames: cfg.dexNames || { "0": "", "1": "xyz" },
     };
   }
@@ -222,6 +225,14 @@
     return { blocked: false, reason: "ok" };
   }
 
+  /** tUSDC faucet cap is 1,000 tokens (6 decimals) per call. Larger config values clamp. */
+  function faucetRaw(amount) {
+    let x;
+    try { x = BigInt(amount); } catch (e) { return FAUCET_CAP; }
+    if (x <= 0n || x > FAUCET_CAP) return FAUCET_CAP;
+    return x;
+  }
+
   function feeText(bps) {
     const n = Number(bps);
     const v = Number.isFinite(n) && n >= 0 ? n : 50;
@@ -233,6 +244,7 @@
   return {
     ZERO: ZERO,
     UNIT: UNIT,
+    FAUCET_CAP: FAUCET_CAP,
     SEASON: SEASON,
     BLOCKED: BLOCKED,
     SEL: SEL,
@@ -250,6 +262,7 @@
     encodeAllowance: encodeAllowance,
     parseUsdc: parseUsdc,
     formatUnits: formatUnits,
+    faucetRaw: faucetRaw,
     isDue: isDue,
     resolve: resolve,
     parseTrace: parseTrace,
