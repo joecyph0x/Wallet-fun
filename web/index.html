@@ -90,6 +90,11 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 .toast.on{opacity:1}
 .queue{font:12px 'JetBrains Mono';color:var(--y);margin-top:8px}
 .kp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:600px){.kp{grid-template-columns:repeat(2,1fr)}}
+.kp.k3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:600px){.kp.k3{grid-template-columns:1fr}}
+.posacts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.posacts button,.posacts a{flex:1;min-width:96px}
+.posacts a{display:block;text-align:center;text-decoration:none;font:700 15px 'Space Grotesk',sans-serif;border-radius:12px;padding:13px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
 .kp>div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
   footer{color:var(--mut);font-size:12px;text-align:center;padding:30px 18px 50px;line-height:1.6}
   button.copybtn{position:relative;z-index:2;width:100%;margin-top:10px;background:transparent;color:var(--c);border:1px solid #3ee0ff66;font-size:13px;padding:8px 10px;box-shadow:none}
@@ -108,7 +113,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 <div class="tn" id="geoWrap" style="display:none"><div id="geoNotice"></div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
-  <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/balance" data-r="balance">💵 Balance</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
+  <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/positions" data-r="positions">📊 Positions</a><a href="#/balance" data-r="balance">💵 Balance</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
   <div class="hdr-r"><span class="pill" id="dataMode"><span class="dot"></span>connecting…</span><span class="pill">⏱ <span id="cdSmall">--</span></span><span class="pill pts" id="ptsPill">-- pts</span></div>
 </header>
 <div class="ticker"><div class="track" id="track"></div></div>
@@ -606,6 +611,34 @@ function balance(){
     <button class="bg" style="width:100%;margin-top:10px" ${dis} onclick="WW.withdraw()">Withdraw</button>
   </div></div>`;
 }
+function positionsPage(){
+  const p=window.WW&&WW.positions?WW.positions():{connected:false,rows:[],loading:true,value:'—',pnl:'—',pnlNote:'',withdrawable:'—',stale:false,staleWithdrawable:false,ready:false};
+  const head=`<div class="hero"><div><h1>Open positions</h1><p>TAIL and FADE shares in this wallet, plus orders waiting on the next settle. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>`;
+  if(!p.connected) return head+`<div class="panel"><p class="note">Connect a wallet to see TAIL and FADE shares and pending orders.</p><div class="btns"><button class="by" onclick="WW.connect()">Connect wallet</button></div></div>`;
+  const pnlCls=p.pnl&&String(p.pnl).charAt(0)==='-'?'dn':(p.pnl&&p.pnl!=='—'&&p.pnl!=='0'?'up':'');
+  const pct=p.pnlPct==null?'':` <small class="${pnlCls}">(${p.pnlPct>0?'+':''}${Number(p.pnlPct).toFixed(2)}%)</small>`;
+  const totals=`<div class="kp k3" style="margin-bottom:14px"><div><div class="lbl">Position value</div><div class="big2">${esc(p.value)} <small>USDC</small></div>${staleMark(p.stale)}${p.pending?`<div class="note">${esc(p.pending)} USDC is in a pending buy, escrowed until it fills or you cancel.</div>`:''}</div><div><div class="lbl">Withdrawable</div><div class="big2">${esc(p.withdrawable)} <small>USDC</small></div>${staleMark(p.staleWithdrawable)}</div><div><div class="lbl">Total P&amp;L</div><div class="big2 ${pnlCls}">${esc(p.pnl)}${p.pnl==='—'?'':' <small>USDC</small>'}</div>${pct}${p.pnlNote?`<div class="note">${esc(p.pnlNote)}</div>`:''}</div></div>`;
+  if(p.loading) return head+totals+`<div class="panel"><p class="note">Reading your shares…</p></div>`;
+  if(p.ready&&!p.rows.length&&!p.stale) return head+totals+`<div class="panel"><h3>No open positions</h3><p class="note">This wallet holds no TAIL or FADE shares and has no pending order.</p><p><a href="#/" style="color:var(--c)">See the whales</a></p></div>`;
+  if(!p.rows.length) return head+totals+`<div class="panel"><p class="note">Share reads didn't finish, so this list may be incomplete.</p></div>`;
+  const rows=p.rows.map(row=>{
+    const w=byTk[row.tk]; if(!w) return '';
+    const side=row.side==='T'?'TAIL':'FADE';
+    const sideCls=row.side==='T'?'up':'dn';
+    const fadeBadge=row.side==='F'?' style="background:#ff2e8822;color:#FF2E88;border-color:#ff2e8855"':'';
+    const pnl=row.pnl==null?'—':esc(row.pnl)+' USDC'+(row.pnlPct==null?'':' ('+(row.pnlPct>0?'+':'')+Number(row.pnlPct).toFixed(2)+'%)');
+    const pnlRowCls=row.pnl==null?'':(String(row.pnl).charAt(0)==='-'?'dn':'up');
+    const status=!row.pendingText?'':(row.canCancel||!row.bookReady?'fills at next settle (~10–20 min).':'The settle window is open, so this order can no longer be cancelled. Claim fills it.');
+    const costNote=row.cost==null&&row.shares!=='0'&&row.shares!=='—'?'<div class="note">Value only. Cost basis was not in the recent log window.</div>':'';
+    return `<div class="panel" style="margin-bottom:12px"><div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${esc(w.tk)}</div></div><span class="badge ${row.side==='T'?'b-live':'b-sleep'}"${fadeBadge}>${side}</span></div>
+    <div class="kp" style="margin-top:12px"><div><div class="lbl">Side</div><div class="val ${sideCls}">${side}</div></div><div><div class="lbl">Shares</div><div class="val">${esc(row.shares)}</div></div><div><div class="lbl">Value</div><div class="val">${esc(row.value)} USDC${staleMark(row.navStale)}</div></div><div><div class="lbl">Cost</div><div class="val">${row.cost==null?'—':esc(row.cost)+' USDC'}</div></div></div>
+    <div class="row"><div class="note">P&amp;L</div><div class="val ${pnlRowCls}">${pnl}</div></div>
+    ${costNote}
+    ${row.pendingText?`<div class="queue">⏳ ${esc(row.pendingText)}<div class="note">${esc(status)}</div></div>`:''}
+    <div class="posacts">${row.canCancel?`<button class="bg" onclick="WW.cancel('${esc(row.tk)}')">Cancel</button>`:''}${row.showClaim?`<button class="bg" onclick="WW.claim('${esc(row.tk)}')">Claim</button>`:''}<a href="#/w/${esc(row.tk)}">Sell</a></div></div>`;
+  }).join('');
+  return head+totals+rows;
+}
 function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1></div></div><div class="panel note" style="font-size:15px;line-height:1.7;color:var(--txt)">
 <p>1. Every tracked Hyperliquid wallet has two sides: <b class="up">TAIL</b> (you think the whale wins) and <b class="dn">FADE</b> (you think they get rekt). Each side has a pot.</p>
 <p>2. About every <b>10 minutes</b> a settle reads the whale's positions and marks. PnL = Σ size × Δmark. Deposits and withdrawals do not move it.</p>
@@ -618,7 +651,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 function route(){return(location.hash||'#/').slice(1).split('?')[0]}
 function render(){
   const r=route();const a=$('#app');let html;let rn='home';
-  if(r.startsWith('/w/')){html=detail(r.slice(3).toUpperCase());rn='w'}else if(r==='/balance'){html=balance();rn='balance'}else if(r==='/leaderboard'){html=leaderboard();rn='leaderboard'}else if(r==='/card'){html=share();rn='card'}else if(r==='/how'){html=how();rn='how'}else html=home();
+  if(r.startsWith('/w/')){html=detail(r.slice(3).toUpperCase());rn='w'}else if(r==='/positions'){html=positionsPage();rn='positions'}else if(r==='/balance'){html=balance();rn='balance'}else if(r==='/leaderboard'){html=leaderboard();rn='leaderboard'}else if(r==='/card'){html=share();rn='card'}else if(r==='/how'){html=how();rn='how'}else html=home();
   const keep={};['amt','depAmt','wdAmt'].forEach(id=>{const el=$('#'+id);if(el)keep[id]=el.value});
   const cv={tk:$('#cTk')?.value,s:$('#cS')?.value,p:$('#cP')?.value,h:$('#cH')?.value};
   a.innerHTML=html;

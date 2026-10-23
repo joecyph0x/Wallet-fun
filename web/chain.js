@@ -31,6 +31,10 @@
   let userGen = 0;
   let potGen = 0;
   let userTimer = null;
+  let shareScanAt = 0;
+  const navCache = {};
+  let basisMem = {};
+  let basisNote = "";
   const shares = {};
   const shareKnown = {};
   const books = {};
@@ -55,6 +59,7 @@
     staleWithdrawable: false,
     staleAllowance: false,
     stalePending: false,
+    staleShares: false,
   };
 
   function $(s) { return document.querySelector(s); }
@@ -508,7 +513,12 @@
     if (!userTimer) {
       userTimer = setInterval(() => {
         if (!live() || busy) return;
-        refreshUser().then(() => {
+        refreshUser().then(async () => {
+          if (onPositions()) {
+            await refreshShares(false);
+            await refreshBooksForPending();
+            await refreshNavs();
+          }
           paint();
           if (window.softRender) window.softRender();
         }).catch((e) => console.warn(e));
@@ -573,6 +583,11 @@
     view.staleWithdrawable = false;
     view.staleAllowance = false;
     view.stalePending = false;
+    view.staleShares = false;
+    shareScanAt = 0;
+    Object.keys(navCache).forEach((k) => delete navCache[k]);
+    basisMem = {};
+    basisNote = "";
   }
 
   function disconnect() {
@@ -897,18 +912,286 @@
     paintUserBooks();
   }
 
+  function hashPath() {
+    return String((typeof location !== "undefined" && location.hash) || "").replace(/^#/, "").split("?")[0];
+  }
+
+  function onPositions() { return hashPath() === "/positions"; }
+
+  async function rpcRetry(method, params) {
+    let reason = "rpc failed";
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      if (attempt > 0) await sleep(V3.retryWaitMs(attempt - 1));
+      try {
+        const res = await fetch(cfg.rpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params }),
+        });
+        const text = await res.text();
+        let body = text;
+        try { body = JSON.parse(text); } catch (e) { body = { error: { message: text.slice(0, 180) } }; }
+        const msg = body && body.error ? (body.error.message || JSON.stringify(body.error)) : "";
+        if (res.status === 429 || res.status >= 500 || V3.isRateLimit(res.status, msg) || (body && body.error && V3.isRateLimit(res.status, msg))) {
+          reason = msg || ("rpc " + res.status);
+          continue;
+        }
+        if (body && body.error) throw new Error(body.error.message || "rpc error");
+        return body.result;
+      } catch (e) {
+        reason = (e && e.message) || reason;
+        if (attempt === 3) throw e;
+      }
+    }
+    throw new Error(reason);
+  }
+
+  async function refreshShares(force) {
+    if (!live() || !window.WALLETS) return;
+    if (!force && shareScanAt && nowSec() < shareScanAt + (cfg.epochSec || 600)) return;
+    const jobs = [];
+    const meta = [];
+    for (const w of window.WALLETS) {
+      const market = marketOf(w.tk);
+      if (!market) continue;
+      meta.push(w.tk);
+      jobs.push({ to: market, data: V3.encodeShares(account, 0) });
+      jobs.push({ to: market, data: V3.encodeShares(account, 1) });
+    }
+    if (!jobs.length) return;
+    const rows = await readChain(jobs);
+    let okAll = true;
+    for (let i = 0; i < meta.length; i++) {
+      const tailRow = rows[i * 2];
+      const fadeRow = rows[i * 2 + 1];
+      if (!V3.callOk(tailRow) || !V3.callOk(fadeRow)) { okAll = false; continue; }
+      rememberShares(meta[i], u256(wordsOf(tailRow.result)[0]), u256(wordsOf(fadeRow.result)[0]));
+    }
+    view.staleShares = !okAll;
+    if (okAll) shareScanAt = nowSec();
+  }
+
+  async function refreshBooksForPending() {
+    const jobs = [];
+    const list = [];
+    Object.keys(pendingRaw).forEach((tk) => {
+      const market = marketOf(tk);
+      if (!market) return;
+      const key = market.toLowerCase();
+      const book = books[key];
+      if (book && book.epoch != null && book.last != null && V3.potFresh(book, nowSec(), cfg.epochSec)) return;
+      list.push(key);
+      jobs.push({ to: market, data: V3.SEL.epoch });
+      jobs.push({ to: market, data: V3.SEL.lastSettleTs });
+    });
+    if (!jobs.length) return;
+    const rows = await readChain(jobs);
+    for (let i = 0; i < list.length; i++) {
+      const epochRow = rows[i * 2];
+      const lastRow = rows[i * 2 + 1];
+      if (!V3.callOk(epochRow) || !V3.callOk(lastRow)) continue;
+      const prev = books[list[i]] || {};
+      books[list[i]] = Object.assign({}, prev, {
+        epoch: u256(wordsOf(epochRow.result)[0]),
+        last: u256(wordsOf(lastRow.result)[0]),
+        fetchedAt: prev.fetchedAt || nowSec(),
+      });
+    }
+    paintUserBooks();
+  }
+
+  async function refreshNavs() {
+    const jobs = [];
+    const meta = [];
+    for (const w of window.WALLETS) {
+      const market = marketOf(w.tk);
+      if (!market || !shareKnown[w.tk]) continue;
+      for (let side = 0; side < 2; side++) {
+        const key = w.tk + ":" + (side ? "F" : "T");
+        if ((shares[key] || 0n) === 0n) continue;
+        const cached = navCache[key];
+        if (cached && !cached.stale && nowSec() < cached.at + (cfg.epochSec || 600)) continue;
+        meta.push(key);
+        jobs.push({ to: market, data: V3.encodeUint(V3.SEL.navOf, side) });
+      }
+    }
+    if (!jobs.length) return;
+    const rows = await readChain(jobs);
+    for (let i = 0; i < meta.length; i++) {
+      const prev = navCache[meta[i]] ? navCache[meta[i]].nav : null;
+      const read = V3.acceptRead(rows[i], prev);
+      if (read.ok) navCache[meta[i]] = { nav: read.use, at: nowSec(), stale: false };
+      else if (navCache[meta[i]]) navCache[meta[i]].stale = true;
+    }
+  }
+
+  function basisKey() { return "ww_basis_v3_" + String(account || "").toLowerCase(); }
+
+  function readBasisStore() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(basisKey()) || "null");
+      if (!raw || raw.user !== String(account || "").toLowerCase()) return null;
+      return raw;
+    } catch (e) { return null; }
+  }
+
+  function writeBasisStore(through, books) {
+    const out = { user: String(account).toLowerCase(), through: through, books: {} };
+    Object.keys(books).forEach((m) => {
+      out.books[m] = {
+        T: { cost: books[m].T.cost.toString(), shares: books[m].T.shares.toString(), partial: books[m].T.partial },
+        F: { cost: books[m].F.cost.toString(), shares: books[m].F.shares.toString(), partial: books[m].F.partial },
+      };
+    });
+    try { localStorage.setItem(basisKey(), JSON.stringify(out)); } catch (e) { /* private mode */ }
+  }
+
+  async function refreshBasis() {
+    const held = [];
+    for (const w of window.WALLETS) {
+      const market = marketOf(w.tk);
+      if (!market || !shareKnown[w.tk]) continue;
+      if ((shares[w.tk + ":T"] || 0n) > 0n || (shares[w.tk + ":F"] || 0n) > 0n) held.push(market);
+    }
+    if (!held.length) { basisNote = ""; return; }
+    const store = readBasisStore();
+    let head;
+    try { head = Number(await rpcRetry("eth_blockNumber", [])); }
+    catch (e) { basisNote = "Value only. Cost basis didn't load."; return; }
+    const from = store && store.through != null ? Number(store.through) + 1 : Math.max(0, head - 8000);
+    const ranges = V3.logRanges(from, head, 1000).slice(0, 8);
+    const userTopic = "0x" + V3.addrWord(account);
+    const logs = [];
+    try {
+      for (let i = 0; i < held.length; i++) {
+        for (let r = 0; r < ranges.length; r++) {
+          const span = ranges[r];
+          const part = await rpcRetry("eth_getLogs", [{
+            address: held[i],
+            fromBlock: "0x" + span[0].toString(16),
+            toBlock: "0x" + span[1].toString(16),
+            topics: [[V3.TOPICS.feePaid, V3.TOPICS.exposure, V3.TOPICS.emergencyExit], userTopic],
+          }]);
+          (part || []).forEach((log) => logs.push({
+            topic: log.topics && log.topics[0],
+            market: held[i],
+            block: Number(log.blockNumber),
+            index: Number(log.logIndex),
+            data: log.data,
+          }));
+        }
+      }
+    } catch (e) {
+      basisNote = "Value only. Cost basis didn't load.";
+      return;
+    }
+    const seed = {};
+    if (store && store.books) {
+      Object.keys(store.books).forEach((m) => { seed[m] = store.books[m]; });
+    }
+    basisMem = V3.foldBasis(logs, seed);
+    writeBasisStore(head, basisMem);
+    basisNote = "";
+  }
+
+  function positions() {
+    const out = {
+      connected: live(),
+      loading: false,
+      ready: shareScanAt > 0,
+      stale: !!(view.staleShares || view.stalePending),
+      rows: [],
+      value: "0",
+      pnl: "—",
+      pnlNote: "",
+      pending: null,
+      withdrawable: view.withdrawable,
+      staleWithdrawable: !!view.staleWithdrawable,
+    };
+    if (!out.connected || !window.WALLETS) return out;
+    let value = 0n;
+    let pnl = 0n;
+    let pnlCost = 0n;
+    let anyValue = false;
+    let anyPnl = false;
+    let pnlGap = false;
+    let pendingBuy = 0n;
+    for (const w of window.WALLETS) {
+      const raw = pendingRaw[w.tk];
+      const book = books[(marketOf(w.tk) || "").toLowerCase()] || {};
+      const pend = view.pending[w.tk];
+      for (const side of ["T", "F"]) {
+        const key = w.tk + ":" + side;
+        const have = shareKnown[w.tk] ? (shares[key] || 0n) : null;
+        const buy = raw ? (side === "T" ? raw.buyTail : raw.buyFade) : 0n;
+        const sell = raw ? (side === "T" ? raw.sellTail : raw.sellFade) : 0n;
+        if ((have == null || have === 0n) && buy === 0n && sell === 0n) continue;
+        const nav = navCache[key];
+        const worth = have != null && have > 0n && nav ? V3.positionValue(have, nav.nav) : null;
+        const market = (marketOf(w.tk) || "").toLowerCase();
+        const lot = basisMem[market] && basisMem[market][side];
+        const costOk = !!(lot && worth != null && lot.shares === have && !lot.partial);
+        if (worth != null) { value += worth; anyValue = true; }
+        if (costOk) { pnl += worth - lot.cost; pnlCost += lot.cost; anyPnl = true; }
+        else if (have != null && have > 0n) pnlGap = true;
+        const bits = [];
+        if (buy > 0n) { pendingBuy += buy; bits.push(V3.formatUnits(buy) + " USDC → " + (side === "T" ? "TAIL" : "FADE")); }
+        if (sell > 0n) bits.push("sell " + V3.formatUnits(sell) + " " + (side === "T" ? "TAIL" : "FADE"));
+        const canCancel = !!(pend && pend.canCancel && (buy > 0n || sell > 0n));
+        out.rows.push({
+          tk: w.tk,
+          side: side,
+          shares: have == null ? "—" : V3.formatUnits(have),
+          value: have == null || (have > 0n && worth == null) ? "—" : V3.formatUnits(worth == null ? 0n : worth),
+          cost: costOk ? V3.formatUnits(lot.cost) : null,
+          pnl: costOk ? V3.formatUnits(worth - lot.cost) : null,
+          pnlPct: costOk && lot.cost > 0n ? Number((worth - lot.cost) * 10000n / lot.cost) / 100 : null,
+          pendingText: bits.join(", "),
+          canCancel: canCancel,
+          showClaim: !!(pend && pend.legs && pend.legs.length && (buy > 0n || sell > 0n)),
+          navStale: !!(nav && nav.stale),
+          bookReady: book.epoch != null,
+        });
+      }
+    }
+    out.loading = !out.ready && !out.rows.length;
+    out.value = anyValue || out.ready ? V3.formatUnits(value) : "—";
+    if (pendingBuy > 0n) out.pending = V3.formatUnits(pendingBuy);
+    if (anyPnl && !pnlGap) {
+      out.pnl = V3.formatUnits(pnl);
+      out.pnlPct = pnlCost > 0n ? Number(pnl * 10000n / pnlCost) / 100 : null;
+    } else if (pnlGap || basisNote) {
+      out.pnl = "—";
+      out.pnlNote = basisNote || "Value only. Cost basis wasn't in the recent log window.";
+    } else if (out.rows.length && !anyValue) {
+      out.pnlNote = "P&L starts once a fill is in your shares.";
+    }
+    if (view.staleShares) out.value = out.ready ? out.value : "—";
+    return out;
+  }
+
   async function refresh(force) {
     if (!window.S || !window.WALLETS) return;
     try {
       if (live()) await refreshUser();
       else await refreshPause();
-      await refreshViewedPot();
+      if (live() && onPositions()) {
+        await refreshShares(!!force);
+        await refreshBooksForPending();
+        await refreshNavs();
+      } else await refreshViewedPot();
     } catch (e) {
       console.warn(e);
     }
     paint();
     if (force && typeof window.render === "function") window.render();
     else if (window.softRender) window.softRender();
+    if (live() && onPositions()) {
+      refreshBasis().then(() => {
+        paint();
+        if (window.softRender) window.softRender();
+      }).catch((e) => console.warn(e));
+    }
   }
 
   function bump(kind, next) {
@@ -1205,6 +1488,7 @@
     },
     canSell: function (tk, side) { return (shares[tk + ":" + side] || 0n) > 0n; },
     pending: function (tk) { return view.pending[tk] || null; },
+    positions: positions,
   };
   window.optOutWhale = (whale) => optOut(whale);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => attach());
