@@ -161,6 +161,52 @@
     return now >= last + epoch;
   }
 
+  /** Keeper waits this long after lastSettle+epoch before it samples. The site countdown uses the same delay. */
+  const KEEPER_DELAY_SEC = 20;
+
+  /** Unix seconds when the keeper should sample, and when the epoch itself closes. lastSettle 0 is already due. */
+  function fillDeadline(lastSettleTs, epochSec, delaySec) {
+    let last = 0n;
+    try { last = BigInt(lastSettleTs || 0); } catch (e) { return null; }
+    if (last < 0n) return null;
+    const epoch = Number(epochSec) > 0 ? Number(epochSec) : 600;
+    const delay = delaySec == null ? KEEPER_DELAY_SEC : Number(delaySec);
+    if (last === 0n) return { deadline: 0, due: 0 };
+    const lastN = Number(last);
+    if (!Number.isSafeInteger(lastN)) return null;
+    return { deadline: lastN + epoch + delay, due: lastN + epoch };
+  }
+
+  /**
+   * A pending order from an earlier epoch is already sampled. Count that as due
+   * now, instead of the next keeper pass.
+   */
+  function orderFillDeadline(lastSettleTs, epochSec, pendingEpoch, marketEpoch) {
+    const times = fillDeadline(lastSettleTs, epochSec);
+    if (!times) return null;
+    let pending = null;
+    let market = null;
+    try {
+      if (pendingEpoch != null) pending = BigInt(pendingEpoch);
+      if (marketEpoch != null) market = BigInt(marketEpoch);
+    } catch (e) { return times; }
+    if (pending != null && pending !== 0n && market != null && pending !== market) return { deadline: 0, due: 0 };
+    return times;
+  }
+
+  /** One line for the trade screen and pending rows. kind is "order" or "pending". */
+  function formatFill(kind, deadlineSec, nowSec) {
+    const deadline = Number(deadlineSec);
+    const now = Number(nowSec);
+    const left = !Number.isFinite(deadline) || deadline <= 0 || !Number.isFinite(now) ? 0 : deadline - now;
+    if (!(left > 0)) return "Filling now…";
+    const sec = Math.ceil(left);
+    const m = Math.floor(sec / 60);
+    const s = String(sec % 60).padStart(2, "0");
+    const prefix = kind === "pending" ? "Your order fills in ~" : "Orders fill in ~";
+    return prefix + m + ":" + s;
+  }
+
   /**
    * `network` is the only switch. Anything other than "mainnet" stays on testnet (998).
    * A mainnet profile must be chain 999. A bad file returns null.
@@ -646,6 +692,10 @@
     estimateOrSkip: estimateOrSkip,
     driveSend: driveSend,
     isDue: isDue,
+    KEEPER_DELAY_SEC: KEEPER_DELAY_SEC,
+    fillDeadline: fillDeadline,
+    orderFillDeadline: orderFillDeadline,
+    formatFill: formatFill,
     resolve: resolve,
     parseTrace: parseTrace,
     parseGeoJson: parseGeoJson,

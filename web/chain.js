@@ -434,10 +434,10 @@
     const pause = pausedFlag ? " Buys are paused. Sell and withdraw stay open." : "";
     if (!cfg) return where + " config/testnet-v3.json did not load, so pots stay on the browser preview.";
     if (!configured()) return where + " v3 addresses are placeholders in config/testnet-v3.json, so these pots are a browser preview until the testnet deploy is filled in." + pause;
-    if (live()) return where + " Withdrawable USDC sits in the registry. Fills at next settle (~10–20 min). Minimum 10 USDC. One pending order per wallet." + pause;
-    if (potsLive) return where + " Live v3 pots. Connect a wallet to deposit USDC and bet. Fills at next settle (~10–20 min)." + pause;
+    if (live()) return where + " Withdrawable USDC sits in the registry. Minimum 10 USDC. One pending order per wallet." + pause;
+    if (potsLive) return where + " Live v3 pots. Connect a wallet to deposit USDC and bet." + pause;
     if (potsFailed) return where + " This coin's pot did not load. The last good balance is still on screen." + pause;
-    if (configured()) return where + " Open a coin to read its USDC pot. Connect a wallet to deposit and bet. Fills at next settle (~10–20 min)." + pause;
+    if (configured()) return where + " Open a coin to read its USDC pot. Connect a wallet to deposit and bet." + pause;
     return where + " Market addresses are still placeholders, so these pots are a browser preview." + pause;
   }
 
@@ -1138,6 +1138,8 @@
         if (buy > 0n) { pendingBuy += buy; bits.push(V3.formatUnits(buy) + " USDC → " + (side === "T" ? "TAIL" : "FADE")); }
         if (sell > 0n) bits.push("sell " + V3.formatUnits(sell) + " " + (side === "T" ? "TAIL" : "FADE"));
         const canCancel = !!(pend && pend.canCancel && (buy > 0n || sell > 0n));
+        const closedPending = raw && (buy > 0n || sell > 0n);
+        const fill = book.last != null && cfg ? V3.orderFillDeadline(book.last, cfg.epochSec, closedPending ? raw.epoch : null, book.epoch) : null;
         out.rows.push({
           tk: w.tk,
           side: side,
@@ -1151,6 +1153,8 @@
           showClaim: !!(pend && pend.legs && pend.legs.length && (buy > 0n || sell > 0n)),
           navStale: !!(nav && nav.stale),
           bookReady: book.epoch != null,
+          fillDeadline: fill ? fill.deadline : null,
+          fillDue: fill ? fill.due : null,
         });
       }
     }
@@ -1266,6 +1270,24 @@
     }
   }
 
+  function fillState(tk) {
+    const market = marketOf(tk);
+    const book = (market && books[market.toLowerCase()]) || null;
+    if (!book || book.last == null || !cfg) return null;
+    const pend = view.pending[tk];
+    const raw = pendingRaw[tk];
+    const has = !!(pend && pend.legs && pend.legs.length);
+    const times = V3.orderFillDeadline(book.last, cfg.epochSec, has && raw ? raw.epoch : null, book.epoch);
+    if (!times) return null;
+    return { deadline: times.deadline, due: times.due, kind: has ? "pending" : "order", hint: has };
+  }
+
+  function fillPhrase(tk, kind) {
+    const st = fillState(tk);
+    if (!st || !(st.deadline > nowSec())) return "Your order fills on the next epoch.";
+    return V3.formatFill(kind, st.deadline, nowSec());
+  }
+
   function amountFrom(id) {
     const el = document.getElementById(id);
     return V3.parseUsdc(el && el.value);
@@ -1278,7 +1300,7 @@
     const pend = view.pending[tk];
     if (pend && pend.legs && pend.legs.length) {
       return toast(pend.canCancel
-        ? "One pending order per wallet. Cancel it (the " + view.feeText + " fee is kept) or wait for the next settle."
+        ? "One pending order per wallet. Cancel it (the " + view.feeText + " fee is kept) or wait for it to fill."
         : "One pending order per wallet. Claim it so it can fill, then place the next one.");
     }
     const st = view.status[tk];
@@ -1294,7 +1316,7 @@
       return withBusy(async () => {
         const assets = await assetsFor(market);
         await send(market, V3.encodeBuy(sideN, raw, assets));
-        toast("Committed " + V3.formatUnits(raw) + " USDC → " + (side === "T" ? "TAIL" : "FADE") + ". Fills at next settle (~10–20 min).");
+        toast("Committed " + V3.formatUnits(raw) + " USDC → " + (side === "T" ? "TAIL" : "FADE") + ". " + fillPhrase(tk, "pending"));
       });
     }
     const raw = shares[tk + ":" + side] || 0n;
@@ -1303,7 +1325,7 @@
     return withBusy(async () => {
       const assets = await assetsFor(market);
       await send(market, V3.encodeSell(sideN, raw, assets));
-      toast("Committed a sell. Fills at next settle (~10–20 min). USDC returns to your withdrawable balance.");
+      toast("Committed a sell. " + fillPhrase(tk, "pending") + " USDC returns to your withdrawable balance.");
     });
   }
 
@@ -1489,6 +1511,7 @@
     canSell: function (tk, side) { return (shares[tk + ":" + side] || 0n) > 0n; },
     pending: function (tk) { return view.pending[tk] || null; },
     positions: positions,
+    fillState: fillState,
   };
   window.optOutWhale = (whale) => optOut(whale);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => attach());
