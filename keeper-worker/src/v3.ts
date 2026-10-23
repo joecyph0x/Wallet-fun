@@ -1,12 +1,12 @@
 /**
- * v3 keeper helpers. Settlement is one settleMany per chunk, every 10 minutes.
- * The live worker stays on v2 until PROTOCOL is set to "v3".
+ * v3 keeper helpers. Settlement is one settleMany per chunk when an epoch is due.
+ * The cron only checks; it does not send a transaction for a market that is not due.
  */
 import { keccak_256 } from "@noble/hashes/sha3";
 
 export const V3_EPOCH_SEC = 600;
-/** How close to lastSettle+EPOCH a run must be before it waits. The 10-minute cron is not wall-clock aligned with that boundary, so it fires a few seconds early and would otherwise skip the epoch. */
-export const EPOCH_LEAD_SEC = 60;
+/** How close to lastSettle+EPOCH a run must be before it waits. The cron checks every minute; waits stay under 60s (30 + 20) so runs never overlap. */
+export const EPOCH_LEAD_SEC = 30;
 /** Settle this long after the boundary so the chain already sees the epoch as due. */
 export const KEEPER_AFTER_SEC = 20;
 /** Forge measured about 507k for a settle that fills an order bucket. This leaves headroom. */
@@ -30,13 +30,15 @@ export function settleManyGas(n: number): bigint {
 
 /**
  * v2 keeps the every-minute cron and ignores the 5-minute and 10-minute triggers.
- * v3 runs only on those slow triggers, so a minute cron left in place does not sample.
+ * v3 checks every minute. A leftover slow cron still runs. The pass sends a tx
+ * only when a market is due, so the extra checks do not change gas.
  */
 export function shouldRun(protocol: string | undefined, cron: string | undefined): "v2" | "v3" | "skip" {
   const p = protocol || "v2";
   const slow = cron === "*/10 * * * *" || cron === "*/5 * * * *";
+  const minute = cron === "* * * * *";
   if (p === "v2") return slow ? "skip" : "v2";
-  if (p === "v3") return slow ? "v3" : "skip";
+  if (p === "v3") return minute || slow ? "v3" : "skip";
   throw new Error(`unknown PROTOCOL ${p}`);
 }
 

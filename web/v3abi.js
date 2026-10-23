@@ -194,25 +194,58 @@
     return times;
   }
 
-  /** One line for the trade screen and pending rows. kind is "order" or "pending". */
+  /** Past this many seconds after the keeper deadline, "Filling now…" becomes "Filling shortly…". */
+  const FILL_STALE_SEC = 90;
+
+  /** One line for home, the trade screen, and pending rows. kind is "next", "order", or "pending". */
   function formatFill(kind, deadlineSec, nowSec) {
     const deadline = Number(deadlineSec);
     const now = Number(nowSec);
     const left = !Number.isFinite(deadline) || deadline <= 0 || !Number.isFinite(now) ? 0 : deadline - now;
-    if (!(left > 0)) return "Filling now…";
+    if (!(left > 0)) {
+      if (deadline > 0 && Number.isFinite(now) && now - deadline > FILL_STALE_SEC) return "Filling shortly…";
+      return "Filling now…";
+    }
     const sec = Math.ceil(left);
     const m = Math.floor(sec / 60);
     const s = String(sec % 60).padStart(2, "0");
-    const prefix = kind === "pending" ? "Your order fills in ~" : "Orders fill in ~";
+    const prefix = kind === "pending" ? "Your order fills in ~" : kind === "next" ? "Next fill in ~" : "Orders fill in ~";
     return prefix + m + ":" + s;
   }
 
   const FILL_FALLBACK = "Orders fill within ~10 min";
+  const NEXT_FILL_FALLBACK = "Next fill within ~10 min";
 
   /** Known lastSettle uses the countdown. Until that read lands, the line still says something. */
   function fillLineText(kind, deadlineSec, nowSec, known) {
-    if (!known) return FILL_FALLBACK;
+    if (!known) return kind === "next" ? NEXT_FILL_FALLBACK : FILL_FALLBACK;
     return formatFill(kind, deadlineSec, nowSec);
+  }
+
+  /**
+   * Soonest keeper sample across markets. They settle in one batch, so the
+   * earliest lastSettleTs + epoch + keeper delay is the next fill.
+   * A zero lastSettle is already due. No readable timestamp means unknown.
+   */
+  function soonestFill(lasts, epochSec, delaySec) {
+    const epoch = Number(epochSec) > 0 ? Number(epochSec) : 600;
+    const delay = delaySec == null ? KEEPER_DELAY_SEC : Number(delaySec);
+    let best = null;
+    const list = lasts || [];
+    for (let i = 0; i < list.length; i++) {
+      const raw = list[i];
+      if (raw == null || raw === "") continue;
+      let last;
+      try { last = BigInt(raw); } catch (e) { continue; }
+      if (last < 0n) continue;
+      if (last === 0n) return { known: true, deadline: 0, due: 0 };
+      const lastN = Number(last);
+      if (!Number.isSafeInteger(lastN)) continue;
+      const deadline = lastN + epoch + delay;
+      if (!best || deadline < best.deadline) best = { deadline: deadline, due: lastN + epoch };
+    }
+    if (!best) return { known: false, deadline: null, due: null };
+    return { known: true, deadline: best.deadline, due: best.due };
   }
 
   /**
@@ -705,7 +738,10 @@
     orderFillDeadline: orderFillDeadline,
     formatFill: formatFill,
     FILL_FALLBACK: FILL_FALLBACK,
+    NEXT_FILL_FALLBACK: NEXT_FILL_FALLBACK,
+    FILL_STALE_SEC: FILL_STALE_SEC,
     fillLineText: fillLineText,
+    soonestFill: soonestFill,
     resolve: resolve,
     parseTrace: parseTrace,
     parseGeoJson: parseGeoJson,

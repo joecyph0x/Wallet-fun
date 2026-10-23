@@ -190,16 +190,26 @@ test("fill line counts to the epoch end plus the keeper delay", () => {
   assert.equal(V3.formatFill("pending", 1620, 1500), "Your order fills in ~2:00");
   assert.equal(V3.formatFill("pending", 1620, 1619.2), "Your order fills in ~0:01");
   assert.equal(V3.formatFill("pending", 1620, 1620), "Filling now…");
-  assert.equal(V3.formatFill("order", 1620, 1800), "Filling now…");
+  assert.equal(V3.formatFill("order", 1620, 1710), "Filling now…");
+  assert.equal(V3.formatFill("order", 1620, 1711), "Filling shortly…");
+  assert.equal(V3.formatFill("order", 1620, 1800), "Filling shortly…");
+  assert.equal(V3.formatFill("next", 1620, 1500), "Next fill in ~2:00");
+  assert.equal(V3.formatFill("next", 1620, 1711), "Filling shortly…");
   assert.equal(V3.fillDeadline(0, 600).deadline, 0);
   assert.equal(V3.formatFill("order", 0, 1800), "Filling now…");
   assert.deepEqual(V3.orderFillDeadline(1000, 600, 37n, 37n), { deadline: 1620, due: 1600 });
   assert.deepEqual(V3.orderFillDeadline(1000, 600, 31n, 37n), { deadline: 0, due: 0 });
   assert.equal(V3.formatFill("pending", 0, 1800), "Filling now…");
   assert.equal(V3.FILL_FALLBACK, "Orders fill within ~10 min");
+  assert.equal(V3.NEXT_FILL_FALLBACK, "Next fill within ~10 min");
+  assert.equal(V3.FILL_STALE_SEC, 90);
   assert.equal(V3.fillLineText("order", null, 1800, false), "Orders fill within ~10 min");
+  assert.equal(V3.fillLineText("next", null, 1800, false), "Next fill within ~10 min");
   assert.equal(V3.fillLineText("order", 1620, 1500, true), "Orders fill in ~2:00");
   assert.equal(V3.fillLineText("pending", 1620, 1620, true), "Filling now…");
+  assert.deepEqual(V3.soonestFill([1000n, 900n], 600, 20), { known: true, deadline: 1520, due: 1500 });
+  assert.deepEqual(V3.soonestFill([0n, 1000n], 600), { known: true, deadline: 0, due: 0 });
+  assert.deepEqual(V3.soonestFill([null, undefined], 600), { known: false, deadline: null, due: null });
 });
 
 test("epoch due rule matches the 10 minute window", () => {

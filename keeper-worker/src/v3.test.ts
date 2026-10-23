@@ -36,13 +36,14 @@ const settleManyAbi = [
   },
 ] as const;
 
-test("v2 ignores the slow cron and v3 ignores the minute cron", () => {
+test("v2 ignores the slow cron and v3 checks every minute", () => {
   assert.equal(shouldRun(undefined, "* * * * *"), "v2");
   assert.equal(shouldRun("v2", "*/10 * * * *"), "skip");
   assert.equal(shouldRun("v2", "*/5 * * * *"), "skip");
   assert.equal(shouldRun("v3", "*/10 * * * *"), "v3");
   assert.equal(shouldRun("v3", "*/5 * * * *"), "v3");
-  assert.equal(shouldRun("v3", "* * * * *"), "skip");
+  assert.equal(shouldRun("v3", "* * * * *"), "v3");
+  assert.equal(shouldRun("v3", "0 0 * * *"), "skip");
   assert.throws(() => shouldRun("v4", "* * * * *"), /PROTOCOL/);
 });
 
@@ -56,12 +57,13 @@ test("an early cron waits until the epoch boundary plus 20s", () => {
   const last = 1_700_000_000n;
   const boundary = 1_700_000_600;
   assert.equal(delayUntilAfterEpochMs([last], boundary - 8, 600), 28_000);
-  assert.equal(delayUntilAfterEpochMs([last], boundary - 60, 600), 80_000);
-  assert.equal(delayUntilAfterEpochMs([last], boundary - 61, 600), 0);
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 30, 600), 50_000);
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 31, 600), 0);
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 60, 600), 0);
   assert.equal(delayUntilAfterEpochMs([last], boundary + 5, 600), 0);
   assert.equal(delayUntilAfterEpochMs([0n], boundary - 8, 600), 0);
   assert.equal(delayUntilAfterEpochMs([last - 600n, last], boundary - 8, 600), 28_000);
-  assert.equal(delayUntilAfterEpochMs([last, last + 30n], boundary - 8, 600), 58_000);
+  assert.equal(delayUntilAfterEpochMs([last, last + 10n], boundary - 8, 600), 38_000);
 });
 
 test("ETH perp index comes from meta.universe, 1 on mainnet and 4 on testnet", () => {

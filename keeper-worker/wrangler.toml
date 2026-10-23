@@ -5,13 +5,13 @@ main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
 [triggers]
-# v3: one settleMany pass every 10 minutes (Config.EPOCH). The v2 minute cron is gone.
-# Epochs end at lastSettleTs + 600, not on :00/:10. */10 therefore fires a few
-# seconds before the boundary. The scheduled handler waits until that boundary
-# plus 20s, then sends the same single pass. Shifting the cron (1-59/10) would
-# still land early once a settle itself takes a few seconds.
-# Set PROTOCOL = "v2", REGISTRY to the v2 address, and add "* * * * *" back to return to v2.
-crons = ["*/10 * * * *"]
+# v3: check every minute. A transaction is sent only when a market is due
+# (lastSettleTs + EPOCH), so gas is still one settle pass per epoch.
+# Epochs end at lastSettleTs + 600, not on the wall clock. If this run is
+# within 30s before that boundary it waits until the boundary plus 20s
+# (at most 50s) so the wait finishes before the next minute's run.
+# Set PROTOCOL = "v2" and REGISTRY to the v2 address to return to v2.
+crons = ["* * * * *"]
 
 [vars]
 PROTOCOL = "v3"

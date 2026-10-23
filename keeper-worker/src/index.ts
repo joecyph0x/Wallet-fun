@@ -50,7 +50,7 @@ export interface Env {
   IDLE_HEARTBEAT_SEC: string;
   HEARTBEAT_SEC: string;
   MAX_TX_PER_RUN: string;
-  /** "v2" (default) keeps the testnet minute cron. "v3" runs settleMany on the slow cron. */
+  /** "v2" (default) keeps the testnet minute cron. "v3" checks every minute and settleMany only when an epoch is due. */
   PROTOCOL?: string;
   EPOCH_SEC?: string;
 }
@@ -696,8 +696,8 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const which = shouldRun(env.PROTOCOL, event.cron);
     if (which === "skip") return;
-    // v3: runV3 reads lastSettleTs, and if this cron is inside the minute before
-    // lastSettle+EPOCH it waits until that boundary plus 20s, then one settleMany pass.
+    // v3: runV3 reads lastSettleTs. Inside the 30s before lastSettle+EPOCH it
+    // waits until that boundary plus 20s (at most 50s), then one settleMany pass.
     const job = which === "v3" ? runV3(env) : run(env);
     ctx.waitUntil(job.catch((err) => console.log(`[error] ${message(err)}`)));
   },
