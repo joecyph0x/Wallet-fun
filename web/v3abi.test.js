@@ -182,6 +182,22 @@ test("wallet send does not stick on a hung estimate or a silent busy flag", asyn
   await assert.rejects(V3.withTimeout(new Promise(() => {}), 30, "slow wallet"), /slow wallet/);
 });
 
+test("fill line counts to the epoch end plus the keeper delay", () => {
+  const t = V3.fillDeadline(1000, 600, 20);
+  assert.deepEqual(t, { deadline: 1620, due: 1600 });
+  assert.equal(V3.KEEPER_DELAY_SEC, 20);
+  assert.equal(V3.formatFill("order", 1620, 1600), "Orders fill in ~0:20");
+  assert.equal(V3.formatFill("pending", 1620, 1500), "Your order fills in ~2:00");
+  assert.equal(V3.formatFill("pending", 1620, 1619.2), "Your order fills in ~0:01");
+  assert.equal(V3.formatFill("pending", 1620, 1620), "Filling now…");
+  assert.equal(V3.formatFill("order", 1620, 1800), "Filling now…");
+  assert.equal(V3.fillDeadline(0, 600).deadline, 0);
+  assert.equal(V3.formatFill("order", 0, 1800), "Filling now…");
+  assert.deepEqual(V3.orderFillDeadline(1000, 600, 37n, 37n), { deadline: 1620, due: 1600 });
+  assert.deepEqual(V3.orderFillDeadline(1000, 600, 31n, 37n), { deadline: 0, due: 0 });
+  assert.equal(V3.formatFill("pending", 0, 1800), "Filling now…");
+});
+
 test("epoch due rule matches the 10 minute window", () => {
   assert.equal(V3.isDue(0, 100, 600), true);
   assert.equal(V3.isDue(1000, 1599, 600), false);

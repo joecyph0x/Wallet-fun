@@ -5,6 +5,10 @@
 import { keccak_256 } from "@noble/hashes/sha3";
 
 export const V3_EPOCH_SEC = 600;
+/** How close to lastSettle+EPOCH a run must be before it waits. The 10-minute cron is not wall-clock aligned with that boundary, so it fires a few seconds early and would otherwise skip the epoch. */
+export const EPOCH_LEAD_SEC = 60;
+/** Settle this long after the boundary so the chain already sees the epoch as due. */
+export const KEEPER_AFTER_SEC = 20;
 /** Forge measured about 507k for a settle that fills an order bucket. This leaves headroom. */
 export const V3_GAS_PER_MARKET = 650_000n;
 export const V3_GAS_OVERHEAD = 100_000n;
@@ -47,6 +51,38 @@ export function isDue(lastSettleTs: bigint, nowSec: number, epochSec: number): b
   if (!Number.isInteger(epochSec) || epochSec <= 0) return false;
   if (lastSettleTs === 0n) return true;
   return BigInt(nowSec) >= lastSettleTs + BigInt(epochSec);
+}
+
+/**
+ * Milliseconds to sleep so this run's single settle lands just after the epoch
+ * boundary. A market already due does not delay the pass. When several markets
+ * close within the lead window, wait for the latest of those boundaries.
+ * Returns 0 when nothing closes soon, so a run in the middle of an epoch
+ * still does one pass and sends nothing.
+ */
+export function delayUntilAfterEpochMs(
+  lastSettleTs: readonly bigint[],
+  nowSec: number,
+  epochSec: number,
+  leadSec = EPOCH_LEAD_SEC,
+  afterSec = KEEPER_AFTER_SEC,
+): number {
+  if (!Number.isInteger(nowSec) || nowSec < 0) return 0;
+  if (!Number.isInteger(epochSec) || epochSec <= 0) return 0;
+  if (!Number.isInteger(leadSec) || leadSec < 0) return 0;
+  if (!Number.isInteger(afterSec) || afterSec < 0) return 0;
+  let target = 0;
+  for (const last of lastSettleTs) {
+    if (last <= 0n) continue;
+    const boundary = Number(last) + epochSec;
+    if (!Number.isSafeInteger(boundary)) continue;
+    const until = boundary - nowSec;
+    if (until <= 0 || until > leadSec) continue;
+    const end = boundary + afterSec;
+    if (end > target) target = end;
+  }
+  const waitSec = target - nowSec;
+  return waitSec > 0 ? waitSec * 1000 : 0;
 }
 
 /** meta.universe order is the perp index. Mainnet ETH is 1. Testnet ETH is 4. Neither is hardcoded. */

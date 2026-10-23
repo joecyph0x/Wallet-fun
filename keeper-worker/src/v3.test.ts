@@ -9,6 +9,7 @@ import {
   chunkBy,
   encodeSettleMany,
   indexByCoin,
+  delayUntilAfterEpochMs,
   isDue,
   marketsPerTx,
   settleManyGas,
@@ -49,6 +50,18 @@ test("a market is due on the epoch, not because the position changed", () => {
   assert.equal(isDue(0n, 1_700_000_000, 600), true);
   assert.equal(isDue(1_700_000_000n, 1_700_000_599, 600), false);
   assert.equal(isDue(1_700_000_000n, 1_700_000_600, 600), true);
+});
+
+test("an early cron waits until the epoch boundary plus 20s", () => {
+  const last = 1_700_000_000n;
+  const boundary = 1_700_000_600;
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 8, 600), 28_000);
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 60, 600), 80_000);
+  assert.equal(delayUntilAfterEpochMs([last], boundary - 61, 600), 0);
+  assert.equal(delayUntilAfterEpochMs([last], boundary + 5, 600), 0);
+  assert.equal(delayUntilAfterEpochMs([0n], boundary - 8, 600), 0);
+  assert.equal(delayUntilAfterEpochMs([last - 600n, last], boundary - 8, 600), 28_000);
+  assert.equal(delayUntilAfterEpochMs([last, last + 30n], boundary - 8, 600), 58_000);
 });
 
 test("ETH perp index comes from meta.universe, 1 on mainnet and 4 on testnet", () => {

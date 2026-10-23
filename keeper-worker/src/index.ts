@@ -30,6 +30,7 @@ import {
   assetsForWhale,
   chunkBy,
   encodeSettleMany,
+  delayUntilAfterEpochMs,
   isDue,
   marketsPerTx,
   settleManyGas,
@@ -508,7 +509,7 @@ async function runV3(env: Env): Promise<Report> {
     }
 
     const listed = await loadMarkets(env, budget);
-    const nowSec = Math.floor(Date.now() / 1000);
+    let nowSec = Math.floor(Date.now() / 1000);
     const viewCalls: RpcCall[] = [];
     for (const row of listed) {
       viewCalls.push({ method: "eth_call", params: [{ to: row.market, data: SEL.lastSettleTs }, "latest"] });
@@ -516,6 +517,18 @@ async function runV3(env: Env): Promise<Report> {
       viewCalls.push({ method: "eth_call", params: [{ to: row.market, data: SEL.dexCount }, "latest"] });
     }
     const views = viewCalls.length ? await rpcBatch(env, viewCalls, budget) : [];
+    const lasts: bigint[] = [];
+    for (let i = 0; i < listed.length; i++) {
+      const last = u256(views[i * 3]?.result);
+      if (last !== undefined) lasts.push(last);
+    }
+    const waitMs = delayUntilAfterEpochMs(lasts, nowSec, epochSec);
+    if (waitMs > 0) {
+      // Wall-clock wait. Cloudflare does not bill this as CPU. One settle pass follows.
+      console.log(`[v3 wait] ${waitMs}ms so the settle lands after the epoch boundary`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      nowSec = Math.floor(Date.now() / 1000);
+    }
     const map = await perps(env, budget);
     const ready: { market: Address; whale: Address; assets: { memberIndex: number; perp: number }[] }[] = [];
 
@@ -683,6 +696,8 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const which = shouldRun(env.PROTOCOL, event.cron);
     if (which === "skip") return;
+    // v3: runV3 reads lastSettleTs, and if this cron is inside the minute before
+    // lastSettle+EPOCH it waits until that boundary plus 20s, then one settleMany pass.
     const job = which === "v3" ? runV3(env) : run(env);
     ctx.waitUntil(job.catch((err) => console.log(`[error] ${message(err)}`)));
   },

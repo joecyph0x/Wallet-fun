@@ -89,6 +89,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000;border:1px solid var(--c);padding:10px 16px;border-radius:12px;font:700 13px 'JetBrains Mono';z-index:99;box-shadow:0 0 30px #3ee0ff55;opacity:0;transition:.3s;pointer-events:none;max-width:92vw}
 .toast.on{opacity:1}
 .queue{font:12px 'JetBrains Mono';color:var(--y);margin-top:8px}
+.fillline{font:700 15px 'JetBrains Mono',monospace;color:var(--y);margin:8px 0 0}
 .kp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:600px){.kp{grid-template-columns:repeat(2,1fr)}}
 .kp.k3{grid-template-columns:repeat(3,1fr)}
 @media(max-width:600px){.kp.k3{grid-template-columns:1fr}}
@@ -109,12 +110,12 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 <body>
 <canvas id="bgwaves" aria-hidden="true"></canvas>
 <div class="poc"><div id="pocBanner">Season 0 points accrue on real volume. They could count toward a possible future airdrop. No promises.</div></div>
-<div class="tn"><div id="testnetNotice">TESTNET — chain 998. TAIL and FADE bets are USDC. Fills at next settle (~10–20 min).</div></div>
+<div class="tn"><div id="testnetNotice">TESTNET — chain 998. TAIL and FADE bets are USDC.</div></div>
 <div class="tn" id="geoWrap" style="display:none"><div id="geoNotice"></div></div>
 <header>
   <a href="#/" class="logo">whalewallet.fun</a>
   <nav><a href="#/" data-r="home">🐋 Coins</a><a href="#/positions" data-r="positions">📊 Positions</a><a href="#/balance" data-r="balance">💵 Balance</a><a href="#/leaderboard" data-r="leaderboard">🏆 Leaderboard</a><a href="#/card" data-r="card">🖼 Share card</a><a href="#/how" data-r="how">❓ How it works</a></nav>
-  <div class="hdr-r"><span class="pill" id="dataMode"><span class="dot"></span>connecting…</span><span class="pill">⏱ <span id="cdSmall">--</span></span><span class="pill pts" id="ptsPill">-- pts</span></div>
+  <div class="hdr-r"><span class="pill" id="dataMode"><span class="dot"></span>connecting…</span><span class="pill pts" id="ptsPill">-- pts</span></div>
 </header>
 <div class="ticker"><div class="track" id="track"></div></div>
 <main id="app"></main>
@@ -331,7 +332,7 @@ let settling=false;
 async function tick(){
   const left=S.nextSettle-Date.now();
   const s=Math.max(0,Math.ceil(left/1000));const txt=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
-  $('#cdSmall').textContent=txt;document.querySelectorAll('.cd').forEach(e=>e.textContent=txt);
+  const cd=$('#cdSmall');if(cd)cd.textContent=txt;document.querySelectorAll('.cd').forEach(e=>e.textContent=txt);paintFills();
   const onChain=window.WW&&(WW.live()||WW.potsLive());
   if(left<=0&&!settling){settling=true;try{await pollAll(); if(onChain)await WW.refresh(); else settle()}finally{if(!onChain)S.nextSettle=Math.ceil((Date.now()+500)/EPOCH)*EPOCH; else if(!(S.nextSettle>Date.now()))S.nextSettle=Date.now()+20000;settling=false}}
   updateHeader();
@@ -342,7 +343,7 @@ function queuedPts(){return U.queue.filter(o=>o.kind==='buy').reduce((a,o)=>a+o.
 function updateHeader(){
   const m=$('#dataMode');
   const v=window.WW&&WW.view?WW.view():null;
-  if(window.WW&&WW.live()){const mark=v&&v.staleWithdrawable?' · stale':'';m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent=`${v.withdrawable}${mark} USDC`;$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · bets are USDC and fill at the next settle`;WW.paint();return}
+  if(window.WW&&WW.live()){const mark=v&&v.staleWithdrawable?' · stale':'';m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent=`${v.withdrawable}${mark} USDC`;$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · bets are USDC`;WW.paint();return}
   if(window.WW&&(WW.potsLive()||(v&&v.configured))){m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent='connect for USDC';$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · open a coin for its USDC pot · connect a wallet to deposit and bet`;WW.paint();return}
   m.innerHTML=S.mode==='live'?`<span class="dot"></span><span class="live">DEMO · browser preview</span>`:S.mode==='snapshot'?`<span class="snap">⚠ SNAPSHOT ${new Date(SNAP.ts).toLocaleString('en-GB')}</span>`:'connecting…';
   $('#ptsPill').textContent=`${fmt(U.pts,0)} pts`;
@@ -468,17 +469,32 @@ function card(w){
 function home(){
   const live=WALLETS.filter(w=>S.w[w.tk].status==='live'),sl=WALLETS.filter(w=>S.w[w.tk].status!=='live');
   const sortLive=[...live].sort((a,b)=>Math.abs(S.w[b.tk].pend/S.w[b.tk].eRef)-Math.abs(S.w[a.tk].pend/S.w[a.tk].eRef));
-  return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC. Fills at next settle (~10–20 min).</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>${S.settleN} settlements this session</small></div></div>
+  return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC.</p></div></div>
   <div class="grid">${sortLive.map(card).join('')}${sl.map(card).join('')}</div>`;
 }
+function fillMarkup(st){
+  if(!st) return '';
+  return `<p class="fillline" data-end="${st.deadline}" data-due="${st.due}" data-kind="${st.kind}" data-hint="${st.hint?1:0}"></p><div class="note fillhint" hidden>or press Claim to fill it now</div>`;
+}
+function paintFills(){
+  if(!window.V3||!V3.formatFill) return;
+  const now=Math.floor(Date.now()/1000);
+  document.querySelectorAll('.fillline').forEach(el=>{
+    el.textContent=V3.formatFill(el.dataset.kind==='pending'?'pending':'order', Number(el.dataset.end), now);
+    const hint=el.nextElementSibling;
+    if(!hint||!hint.classList.contains('fillhint')) return;
+    const due=Number(el.dataset.due);
+    hint.hidden=!(el.dataset.hint==='1'&&Number.isFinite(due)&&now>=due);
+  });
+}
 function pendingBlock(tk){
-  if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet. An order fills at next settle (~10–20 min).</p>';
+  if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet.</p>';
   const p=WW.pending(tk);const fee=(WW.view()&&WW.view().feeText)||'0.5%';
-  if(!p||!p.legs.length) return '<p class="note">No pending order.</p>';
+  if(!p||!p.legs.length) return '';
   const bits=p.legs.map(l=>{const side=l.side==='T'?'TAIL':'FADE';return l.kind==='buy'?`${esc(l.text)} USDC → ${side}`:`sell ${esc(l.text)} ${side}`});
   const cancel=p.canCancel?` <a href="javascript:WW.cancel('${tk}')" style="color:var(--c)">cancel · ${esc(fee)} fee</a>`:'';
-  const note=p.canCancel?`fills at next settle (~10–20 min). Cancel keeps the ${esc(fee)} fee.`:'The settle window is open, so this order can no longer be cancelled. Claim fills it.';
-  return `<div class="queue">⏳ ${bits.join(', ')}${cancel}<div class="note">${note}</div></div>`;
+  const feeNote=p.canCancel?`<div class="note">Cancel keeps the ${esc(fee)} fee.</div>`:'';
+  return `<div class="queue">⏳ ${bits.join(', ')}${cancel}</div>${feeNote}`;
 }
 function tradeBox(tk,w){
   const live=window.WW&&WW.live();
@@ -495,9 +511,11 @@ function tradeBox(tk,w){
   const sellF=live&&WW.canSell(tk,'F');
   const link=s=>`<a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`;
   const act=geo?'disabled':'';
-  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b>${live?staleMark(v.staleWithdrawable):''} · minimum 10 USDC · one pending order per wallet · fills at next settle (~10–20 min). <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
+  const line=fillMarkup(window.WW&&WW.fillState&&WW.fillState(tk));
+  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b>${live?staleMark(v.staleWithdrawable):''} · minimum 10 USDC · one pending order per wallet. <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
+  ${line}
   ${paused?`<p class="note">Buys are paused. Sell and withdraw stay open. ${esc(WW.pauseNote())}</p>`:''}
-  ${st==='redeem-only'?'<p class="note">This whale opted out. New buys are closed. Sells still fill at the next settle.</p>':''}
+  ${st==='redeem-only'?'<p class="note">This whale opted out. New buys are closed. Sells still fill when the epoch ends.</p>':''}
   <input id="amt" type="number" min="10" step="1" value="10" style="margin-top:8px">
   <div class="quick">${[10,25,100,'MAX'].map(n=>`<span onclick="setField('amt','${n}','${max}')">${n}</span>`).join('')}</div>
   <div class="btns"><button class="bt" ${buyDis} onclick="order('${tk}','T','buy')">🚀 TAIL ${first}</button><button class="bf" ${buyDis} onclick="order('${tk}','F','buy')">💀 FADE ${first}</button></div>
@@ -509,7 +527,7 @@ function tradeBox(tk,w){
 }
 function detail(tk){
   const w=byTk[tk];if(!w)return home();const x=S.w[tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;
-  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>
+  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div></div>
   <div class="kp" style="margin-bottom:14px"><div><div class="lbl">Equity (live)</div><div class="big2">${usd(x.eq)}</div></div><div><div class="lbl">Open notional</div><div class="big2">${usd(x.ntl)}</div><small class="note">${x.eq?(x.ntl/x.eq).toFixed(1)+'x effective':''}</small></div><div><div class="lbl">Unsettled PnL (this min)</div><div class="big2 ${cls(x.pend)}">${usd(x.pend)}</div><small class="note">${pct(x.pend/Math.max(x.eRef,1),3)} of E_ref</small></div><div><div class="lbl">24h PnL (HL portfolio)</div><div class="big2 ${cls(x.pnl24)}">${usd(x.pnl24)}</div></div></div>
   <div class="dgrid"><div>
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
@@ -531,7 +549,7 @@ function leaderboard(){
   const rows=DEMO.map(d=>{let v=0;for(const k in d.h){const[tk,s]=k.split(':');v+=d.h[k]*nav(S.w[tk],s)}const best=Object.keys(d.h).sort((a,b)=>{const f=k=>{const[t,s]=k.split(':');return nav(S.w[t],s)};return f(b)-f(a)})[0];return{n:d.n,demo:1,v,pnl:v-d.cost,roi:v/d.cost-1,best}});
   const uv=U.pts+holdingsValue()+queuedPts();rows.push({n:U.handle+' (you)',you:1,v:uv,pnl:uv-(U.deposited||0),roi:U.deposited?uv/U.deposited-1:0,best:Object.keys(U.hold)[0]||'—'});
   rows.sort((a,b)=>b.roi-a.roi);
-  return`<div class="hero"><div><h1>🏆 Season 0 leaderboard</h1><p>Browser preview, ranked by ROI. Season 0 points accrue on real volume and could count toward a possible future airdrop. No promises. House seed is not a player and is not ranked. <span class="demo">DEMO</span> players are simulated wallets holding real TAIL/FADE positions in this PoC — their P&amp;L moves with the real 1-minute settlements, but the players are fake.</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div></div></div>
+  return`<div class="hero"><div><h1>🏆 Season 0 leaderboard</h1><p>Browser preview, ranked by ROI. Season 0 points accrue on real volume and could count toward a possible future airdrop. No promises. House seed is not a player and is not ranked. <span class="demo">DEMO</span> players are simulated wallets holding real TAIL/FADE positions in this PoC — their P&amp;L moves with the real 1-minute settlements, but the players are fake.</p></div></div>
   <div class="panel tblwrap"><table><tr><th>#</th><th>Player</th><th>Best bag</th><th>Value</th><th>P&amp;L</th><th>ROI</th></tr>${rows.map((r,i)=>`<tr class="${r.you?'you':''}"><td>${i<3?['🥇','🥈','🥉'][i]:i+1}</td><td>${esc(r.n)} ${r.demo?'<span class="demo">DEMO</span>':''}</td><td>${r.best&&r.best!=='—'?r.best.replace(/(.*):T/,'TAIL-$1').replace(/(.*):F/,'FADE-$1'):'—'}</td><td>${fmt(r.v,0)}</td><td class="${cls(r.pnl)}">${r.pnl>=0?'+':''}${fmt(r.pnl,0)}</td><td class="${cls(r.roi)}">${pct(r.roi,2)}</td></tr>`).join('')}</table></div>
   <p class="note">Your handle: <b>${esc(U.handle)}</b> · <a href="javascript:resetMe()" style="color:var(--c)">reset my preview balance</a></p>`;
 }
@@ -573,7 +591,7 @@ function drawCard(){
   ctx.fillText(quip,60,475);
   const top=x.pos[0];ctx.font='22px JetBrains Mono, monospace';ctx.fillStyle='#8a8aa8';
   ctx.fillText(`whale equity ${usd(x.eq)}${top?` · ${top.szi>0?'LONG':'SHORT'} ${top.coin} ${usd(top.ntl)}${top.lev?' @'+top.lev+'x':''}`:''}`,60,520);
-  ctx.fillText(`TAIL ${nav(x,'T').toFixed(4)} · FADE ${nav(x,'F').toFixed(4)} · fills at next settle (~10–20 min)`,60,555);
+  ctx.fillText(`TAIL ${nav(x,'T').toFixed(4)} · FADE ${nav(x,'F').toFixed(4)}`,60,555);
   // sparkline
   const h=x.hist.slice(-120);if(h.length>1){const k=s==='T'?'tp':'fp';const ys=h.map(q=>q[k]);let mn=Math.min(...ys),mx=Math.max(...ys);if(mx-mn<1e-6){mx+=.001;mn-=.001}ctx.strokeStyle=acc;ctx.lineWidth=5;ctx.shadowColor=acc;ctx.shadowBlur=18;ctx.beginPath();h.forEach((q,i)=>{const X=760+i/(h.length-1)*390,Y=400-(q[k]-mn)/(mx-mn)*150;i?ctx.lineTo(X,Y):ctx.moveTo(X,Y)});ctx.stroke();ctx.shadowBlur=0}
   ctx.fillStyle='#ffffff10';rr(ctx,0,600,W,75,0);ctx.fill();ctx.fillStyle='#e9e9ff';ctx.font='700 24px JetBrains Mono, monospace';ctx.fillText('@'+($('#cH').value||'anon'),60,647);
@@ -592,7 +610,7 @@ function balance(){
   const committed=v.committed||'0';
   const wMax=(wallet!=='—'?wallet:'0').replace(/[^0-9.]/g,'')||'0';
   const dMax=(wd!=='—'?wd:'0').replace(/[^0-9.]/g,'')||'0';
-  return `<div class="hero"><div><h1>Balance</h1><p>Approve USDC, then deposit it into the registry. Withdraw sends your withdrawable balance back to your wallet. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>
+  return `<div class="hero"><div><h1>Balance</h1><p>Approve USDC, then deposit it into the registry. Withdraw sends your withdrawable balance back to your wallet. ${esc(V3.SEASON)}</p></div></div>
   <div class="dgrid"><div class="panel"><h3>Deposit</h3>
     <div class="note">Wallet USDC: <b class="pts">${esc(wallet)}</b>${staleMark(v.staleWallet)}</div>
     <div class="note">Approved for the registry: <b>${esc(al)}</b>${staleMark(v.staleAllowance)}</div>
@@ -613,7 +631,7 @@ function balance(){
 }
 function positionsPage(){
   const p=window.WW&&WW.positions?WW.positions():{connected:false,rows:[],loading:true,value:'—',pnl:'—',pnlNote:'',withdrawable:'—',stale:false,staleWithdrawable:false,ready:false};
-  const head=`<div class="hero"><div><h1>Open positions</h1><p>TAIL and FADE shares in this wallet, plus orders waiting on the next settle. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>`;
+  const head=`<div class="hero"><div><h1>Open positions</h1><p>TAIL and FADE shares in this wallet, plus orders still waiting to fill. ${esc(V3.SEASON)}</p></div></div>`;
   if(!p.connected) return head+`<div class="panel"><p class="note">Connect a wallet to see TAIL and FADE shares and pending orders.</p><div class="btns"><button class="by" onclick="WW.connect()">Connect wallet</button></div></div>`;
   const pnlCls=p.pnl&&String(p.pnl).charAt(0)==='-'?'dn':(p.pnl&&p.pnl!=='—'&&p.pnl!=='0'?'up':'');
   const pct=p.pnlPct==null?'':` <small class="${pnlCls}">(${p.pnlPct>0?'+':''}${Number(p.pnlPct).toFixed(2)}%)</small>`;
@@ -628,13 +646,13 @@ function positionsPage(){
     const fadeBadge=row.side==='F'?' style="background:#ff2e8822;color:#FF2E88;border-color:#ff2e8855"':'';
     const pnl=row.pnl==null?'—':esc(row.pnl)+' USDC'+(row.pnlPct==null?'':' ('+(row.pnlPct>0?'+':'')+Number(row.pnlPct).toFixed(2)+'%)');
     const pnlRowCls=row.pnl==null?'':(String(row.pnl).charAt(0)==='-'?'dn':'up');
-    const status=!row.pendingText?'':(row.canCancel||!row.bookReady?'fills at next settle (~10–20 min).':'The settle window is open, so this order can no longer be cancelled. Claim fills it.');
+    const status=!row.pendingText?'':`${row.fillDeadline==null?'':`<p class="fillline" data-end="${row.fillDeadline}" data-due="${row.fillDue}" data-kind="pending" data-hint="1"></p><div class="note fillhint" hidden>or press Claim to fill it now</div>`}${row.canCancel?`<div class="note">Cancel keeps the ${esc((window.WW&&WW.view&&WW.view().feeText)||'0.5%')} fee.</div>`:''}`;
     const costNote=row.cost==null&&row.shares!=='0'&&row.shares!=='—'?'<div class="note">Value only. Cost basis was not in the recent log window.</div>':'';
     return `<div class="panel" style="margin-bottom:12px"><div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${esc(w.tk)}</div></div><span class="badge ${row.side==='T'?'b-live':'b-sleep'}"${fadeBadge}>${side}</span></div>
     <div class="kp" style="margin-top:12px"><div><div class="lbl">Side</div><div class="val ${sideCls}">${side}</div></div><div><div class="lbl">Shares</div><div class="val">${esc(row.shares)}</div></div><div><div class="lbl">Value</div><div class="val">${esc(row.value)} USDC${staleMark(row.navStale)}</div></div><div><div class="lbl">Cost</div><div class="val">${row.cost==null?'—':esc(row.cost)+' USDC'}</div></div></div>
     <div class="row"><div class="note">P&amp;L</div><div class="val ${pnlRowCls}">${pnl}</div></div>
     ${costNote}
-    ${row.pendingText?`<div class="queue">⏳ ${esc(row.pendingText)}<div class="note">${esc(status)}</div></div>`:''}
+    ${row.pendingText?`<div class="queue">⏳ ${esc(row.pendingText)}</div>${status}`:''}
     <div class="posacts">${row.canCancel?`<button class="bg" onclick="WW.cancel('${esc(row.tk)}')">Cancel</button>`:''}${row.showClaim?`<button class="bg" onclick="WW.claim('${esc(row.tk)}')">Claim</button>`:''}<a href="#/w/${esc(row.tk)}">Sell</a></div></div>`;
   }).join('');
   return head+totals+rows;
@@ -643,7 +661,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>1. Every tracked Hyperliquid wallet has two sides: <b class="up">TAIL</b> (you think the whale wins) and <b class="dn">FADE</b> (you think they get rekt). Each side has a pot.</p>
 <p>2. About every <b>10 minutes</b> a settle reads the whale's positions and marks. PnL = Σ size × Δmark. Deposits and withdrawals do not move it.</p>
 <p>3. r = PnL ÷ reference equity, capped at ±25% per settle and inside a ±50% UTC-day budget. The pot moved = r × min(TAIL pot, FADE pot, 25% × equity). A one-sided pot does not pay itself.</p>
-<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It <b>fills at next settle (~10–20 min)</b>. Cancel before that settle keeps a 0.5% fee.</p>
+<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It fills when that coin's 10 minute epoch ends, about 20 seconds later. Cancel before the epoch ends keeps a 0.5% fee. After that, Claim fills it immediately.</p>
 <p>5. A pause stops new buys. Sell, claim, cancel, and withdraw stay open. After 72 hours, pro-rata redeem pays the last NAV with no new sample.</p>
 <p>6. Wallet owners can opt out by signing a message. ${esc(V3.SEASON)} Testnet is open in every region. On mainnet, connecting and betting are not offered in the UK, the US, or their territories. Copy the whale opens that coin on Hyperliquid. It does not place the order.</p>
 </div>`}
@@ -662,7 +680,7 @@ function render(){
 }
 function softRender(){if(route()==='/card'){updateHeader();return}const ae=document.activeElement;if(ae&&ae.tagName==='INPUT')return updateHeader();render()}
 window.softRender=softRender;
-function tickTextOnly(){const left=S.nextSettle-Date.now();const s=Math.max(0,Math.ceil(left/1000));const t=S.nextSettle?`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:'--:--';document.querySelectorAll('.cd').forEach(e=>e.textContent=t)}
+function tickTextOnly(){const left=S.nextSettle-Date.now();const s=Math.max(0,Math.ceil(left/1000));const t=S.nextSettle?`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:'--:--';document.querySelectorAll('.cd').forEach(e=>e.textContent=t);paintFills()}
 function renderTicker(){
   const ev=S.events.slice(0,30);if(!ev.length)return;
   const items=ev.map(e=>`<span class="tk"><span class="xb">𝕏 @whalewalletbot</span>${esc(e.txt)} <span class="zz">${ago(e.t)}</span></span>`).join('');
