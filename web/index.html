@@ -90,6 +90,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
 .toast.on{opacity:1}
 .queue{font:12px 'JetBrains Mono';color:var(--y);margin-top:8px}
 .fillline{font:700 15px 'JetBrains Mono',monospace;color:var(--y);margin:8px 0 0}
+.fillline.nextfill{font-size:22px;margin:0 0 18px}
 .kp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:600px){.kp{grid-template-columns:repeat(2,1fr)}}
 .kp.k3{grid-template-columns:repeat(3,1fr)}
 @media(max-width:600px){.kp.k3{grid-template-columns:1fr}}
@@ -470,7 +471,14 @@ function home(){
   const live=WALLETS.filter(w=>S.w[w.tk].status==='live'),sl=WALLETS.filter(w=>S.w[w.tk].status!=='live');
   const sortLive=[...live].sort((a,b)=>Math.abs(S.w[b.tk].pend/S.w[b.tk].eRef)-Math.abs(S.w[a.tk].pend/S.w[a.tk].eRef));
   return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC.</p></div></div>
+  ${nextFillMarkup()}
   <div class="grid">${sortLive.map(card).join('')}${sl.map(card).join('')}</div>`;
+}
+function nextFillMarkup(){
+  const st=window.WW&&WW.nextFill?WW.nextFill():null;
+  const known=!!(st&&st.known);
+  const text=window.V3&&V3.fillLineText?V3.fillLineText('next', known?st.deadline:null, Math.floor(Date.now()/1000), known):'Next fill within ~10 min';
+  return `<p class="fillline nextfill" data-kind="next" data-end="${known?st.deadline:''}" data-due="${known?st.due:''}" data-known="${known?1:0}">${esc(text)}</p>`;
 }
 function fillMarkup(tk){
   const st=window.WW&&WW.fillState?WW.fillState(tk):null;
@@ -484,7 +492,12 @@ function paintFills(){
   const now=Math.floor(Date.now()/1000);
   document.querySelectorAll('.fillline').forEach(el=>{
     const tk=el.dataset.tk;
-    if(tk&&window.WW&&WW.fillState){
+    if(el.dataset.kind==='next'){
+      const st=window.WW&&WW.nextFill?WW.nextFill():null;
+      const known=!!(st&&st.known);
+      el.dataset.known=known?'1':'0';
+      if(known){el.dataset.end=String(st.deadline);el.dataset.due=String(st.due);}
+    }else if(tk&&window.WW&&WW.fillState){
       const st=WW.fillState(tk);
       const known=!!(st&&st.known);
       el.dataset.known=known?'1':'0';
@@ -493,7 +506,7 @@ function paintFills(){
       if(known){el.dataset.end=String(st.deadline);el.dataset.due=String(st.due);}
     }
     const known=el.dataset.known==='1';
-    const kind=el.dataset.kind==='pending'?'pending':'order';
+    const kind=el.dataset.kind==='pending'?'pending':el.dataset.kind==='next'?'next':'order';
     el.textContent=V3.fillLineText(kind, known?Number(el.dataset.end):null, now, known);
     const hint=el.nextElementSibling;
     if(!hint||!hint.classList.contains('fillhint')) return;

@@ -31,6 +31,8 @@
   let userGen = 0;
   let potGen = 0;
   let userTimer = null;
+  let settleTimer = null;
+  let settleSweepAt = 0;
   let shareScanAt = 0;
   const navCache = {};
   let basisMem = {};
@@ -38,6 +40,7 @@
   const shares = {};
   const shareKnown = {};
   const books = {};
+  const lastSeen = {};
   const basis = {};
   const pendingRaw = {};
   let demoSnap = null;
@@ -524,6 +527,14 @@
         }).catch((e) => console.warn(e));
       }, 15000);
     }
+    if (!settleTimer) {
+      settleTimer = setInterval(() => {
+        if (!onHome()) return;
+        refreshSettleTimes().then(() => {
+          if (typeof window.paintFills === "function") window.paintFills();
+        }).catch((e) => console.warn(e));
+      }, 30000);
+    }
     window.addEventListener("hashchange", () => {
       refresh(false).catch((e) => console.warn(e));
     });
@@ -918,6 +929,44 @@
 
   function onPositions() { return hashPath() === "/positions"; }
 
+  function onHome() {
+    const path = hashPath();
+    return path === "" || path === "/";
+  }
+
+  async function refreshSettleTimes() {
+    if (!cfg || !window.WALLETS) return;
+    if (settleSweepAt && nowSec() < settleSweepAt + 30) return;
+    const jobs = [];
+    const keys = [];
+    for (const w of window.WALLETS) {
+      const market = marketOf(w.tk);
+      if (!market) continue;
+      keys.push(market.toLowerCase());
+      jobs.push({ to: market, data: V3.SEL.lastSettleTs });
+    }
+    if (!jobs.length) return;
+    settleSweepAt = nowSec();
+    const rows = await readChain(jobs);
+    for (let i = 0; i < keys.length; i++) {
+      if (!V3.callOk(rows[i])) continue;
+      const word = wordsOf(rows[i].result)[0];
+      if (word == null) continue;
+      lastSeen[keys[i]] = u256(word);
+    }
+  }
+
+  function nextFill() {
+    if (!cfg || !window.V3) return { known: false, deadline: null, due: null };
+    const seen = {};
+    Object.keys(books).forEach((key) => {
+      const book = books[key];
+      if (book && book.last != null) seen[key] = book.last;
+    });
+    Object.keys(lastSeen).forEach((key) => { seen[key] = lastSeen[key]; });
+    return V3.soonestFill(Object.keys(seen).map((key) => seen[key]), cfg.epochSec);
+  }
+
   async function rpcRetry(method, params) {
     let reason = "rpc failed";
     for (let attempt = 0; attempt <= 3; attempt++) {
@@ -1184,6 +1233,7 @@
         await refreshBooksForPending();
         await refreshNavs();
       } else await refreshViewedPot();
+      if (onHome()) await refreshSettleTimes();
     } catch (e) {
       console.warn(e);
     }
@@ -1514,6 +1564,7 @@
     pending: function (tk) { return view.pending[tk] || null; },
     positions: positions,
     fillState: fillState,
+    nextFill: nextFill,
   };
   window.optOutWhale = (whale) => optOut(whale);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => attach());
