@@ -107,6 +107,81 @@ test("geoblock fails closed on mainnet and stays off on testnet", () => {
   assert.equal(V3.feeText(50), "0.5%");
 });
 
+test("wallet send does not stick on a hung estimate or a silent busy flag", async () => {
+  assert.equal(V3.readyCheck({ busy: true, cfg: true, configured: true, hasEth: true, live: true }).toast, V3.BUSY_TOAST);
+  assert.equal(V3.readyCheck({ busy: false, cfg: false }).ok, false);
+  assert.match(V3.readyCheck({ busy: false, cfg: true, configured: false, missing: "registry is empty" }).toast, /registry is empty/);
+  assert.match(V3.readyCheck({ busy: false, cfg: true, configured: true, hasEth: false }).toast, /injected wallet/);
+  assert.match(V3.readyCheck({ busy: false, cfg: true, configured: true, hasEth: true, live: false, chainLabel: "HyperEVM Testnet" }).toast, /HyperEVM Testnet/);
+  assert.equal(V3.readyCheck({ busy: false, cfg: true, configured: true, hasEth: true, live: true }).ok, true);
+
+  const current = "0x2222222222222222222222222222222222222222";
+  const other = "0x1111111111111111111111111111111111111111";
+  assert.equal(V3.pickAccount([other, current], current), current);
+  assert.equal(V3.pickAccount([other], current), other);
+  assert.equal(V3.pickAccount([], current), null);
+  assert.equal(V3.isReject({ code: 4001, message: "no" }), true);
+
+  const hung = await V3.estimateOrSkip(() => new Promise(() => {}), { from: other }, 30);
+  assert.equal(hung.skipped, true);
+  await assert.rejects(
+    V3.estimateOrSkip(() => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })), {}, 200),
+    (e) => e.rejected === true
+  );
+
+  const calls = [];
+  const hash = "0x" + "ab".repeat(32);
+  const sent = await V3.driveSend({
+    tx: { from: other, to: other, data: "0x" },
+    estimateMs: 40,
+    sendMs: 200,
+    receiptMs: 50,
+    receiptTries: 2,
+    request: (params) => {
+      calls.push(params.method);
+      if (params.method === "eth_estimateGas") return new Promise(() => {});
+      if (params.method === "eth_sendTransaction") return Promise.resolve(hash);
+      return Promise.resolve(null);
+    },
+    receipt: () => Promise.resolve({ status: "0x1" }),
+    wait: () => Promise.resolve(),
+  });
+  assert.equal(sent.hash, hash);
+  assert.deepEqual(calls, ["eth_estimateGas", "eth_sendTransaction"]);
+
+  await assert.rejects(
+    V3.driveSend({
+      tx: { from: other },
+      estimateMs: 20,
+      sendMs: 40,
+      request: (params) => {
+        if (params.method === "eth_estimateGas") return Promise.resolve("0x1");
+        return new Promise(() => {});
+      },
+      receipt: () => Promise.resolve(null),
+    }),
+    /did not respond/
+  );
+
+  await assert.rejects(
+    V3.driveSend({
+      tx: { from: other },
+      estimateMs: 20,
+      sendMs: 200,
+      receiptMs: 20,
+      receiptTries: 2,
+      request: (params) => params.method === "eth_sendTransaction" ? Promise.resolve(hash) : Promise.resolve("0x1"),
+      receipt: () => Promise.resolve(null),
+      wait: () => Promise.resolve(),
+    }),
+    (e) => e.pending === true && e.hash === hash
+  );
+
+  const fast = await V3.withTimeout(Promise.resolve("ok"), 50, "slow");
+  assert.equal(fast, "ok");
+  await assert.rejects(V3.withTimeout(new Promise(() => {}), 30, "slow wallet"), /slow wallet/);
+});
+
 test("epoch due rule matches the 10 minute window", () => {
   assert.equal(V3.isDue(0, 100, 600), true);
   assert.equal(V3.isDue(1000, 1599, 600), false);
