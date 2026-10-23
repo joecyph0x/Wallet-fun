@@ -1190,6 +1190,7 @@
     paint();
     if (force && typeof window.render === "function") window.render();
     else if (window.softRender) window.softRender();
+    if (typeof window.paintFills === "function") window.paintFills();
     if (live() && onPositions()) {
       refreshBasis().then(() => {
         paint();
@@ -1271,20 +1272,21 @@
   }
 
   function fillState(tk) {
+    const pend = view.pending[tk];
+    const has = !!(pend && pend.legs && pend.legs.length);
+    const base = { kind: has ? "pending" : "order", hint: has, known: false, deadline: null, due: null };
     const market = marketOf(tk);
     const book = (market && books[market.toLowerCase()]) || null;
-    if (!book || book.last == null || !cfg) return null;
-    const pend = view.pending[tk];
+    if (!book || book.last == null || !cfg) return base;
     const raw = pendingRaw[tk];
-    const has = !!(pend && pend.legs && pend.legs.length);
     const times = V3.orderFillDeadline(book.last, cfg.epochSec, has && raw ? raw.epoch : null, book.epoch);
-    if (!times) return null;
-    return { deadline: times.deadline, due: times.due, kind: has ? "pending" : "order", hint: has };
+    if (!times) return base;
+    return { deadline: times.deadline, due: times.due, kind: base.kind, hint: has, known: true };
   }
 
   function fillPhrase(tk, kind) {
     const st = fillState(tk);
-    if (!st || !(st.deadline > nowSec())) return "Your order fills on the next epoch.";
+    if (!st || !st.known || !(st.deadline > nowSec())) return "Your order fills on the next epoch.";
     return V3.formatFill(kind, st.deadline, nowSec());
   }
 

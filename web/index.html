@@ -472,21 +472,37 @@ function home(){
   return`<div class="hero"><div><h1>Every whale is a memecoin.<br><span class="t">TAIL</span> 'em or <span class="f">FADE</span> 'em.</h1><p>Each coin's pot rebalances on the wallet's <b>real</b> Hyperliquid PnL. Whale wins → TAIL eats FADE. Whale bleeds → FADE feasts. Bets are USDC.</p></div></div>
   <div class="grid">${sortLive.map(card).join('')}${sl.map(card).join('')}</div>`;
 }
-function fillMarkup(st){
-  if(!st) return '';
-  return `<p class="fillline" data-end="${st.deadline}" data-due="${st.due}" data-kind="${st.kind}" data-hint="${st.hint?1:0}"></p><div class="note fillhint" hidden>or press Claim to fill it now</div>`;
+function fillMarkup(tk){
+  const st=window.WW&&WW.fillState?WW.fillState(tk):null;
+  const known=!!(st&&st.known);
+  const kind=st&&st.kind==='pending'?'pending':'order';
+  const text=window.V3&&V3.fillLineText?V3.fillLineText(kind, known?st.deadline:null, Math.floor(Date.now()/1000), known):'Orders fill within ~10 min';
+  return `<p class="fillline" data-tk="${esc(tk)}" data-end="${known?st.deadline:''}" data-due="${known?st.due:''}" data-kind="${kind}" data-hint="${st&&st.hint?1:0}" data-known="${known?1:0}">${esc(text)}</p><div class="note fillhint" hidden>or press Claim to fill it now</div>`;
 }
 function paintFills(){
-  if(!window.V3||!V3.formatFill) return;
+  if(!window.V3||!V3.fillLineText) return;
   const now=Math.floor(Date.now()/1000);
   document.querySelectorAll('.fillline').forEach(el=>{
-    el.textContent=V3.formatFill(el.dataset.kind==='pending'?'pending':'order', Number(el.dataset.end), now);
+    const tk=el.dataset.tk;
+    if(tk&&window.WW&&WW.fillState){
+      const st=WW.fillState(tk);
+      const known=!!(st&&st.known);
+      el.dataset.known=known?'1':'0';
+      el.dataset.kind=st&&st.kind==='pending'?'pending':'order';
+      el.dataset.hint=st&&st.hint?'1':'0';
+      if(known){el.dataset.end=String(st.deadline);el.dataset.due=String(st.due);}
+    }
+    const known=el.dataset.known==='1';
+    const kind=el.dataset.kind==='pending'?'pending':'order';
+    el.textContent=V3.fillLineText(kind, known?Number(el.dataset.end):null, now, known);
     const hint=el.nextElementSibling;
     if(!hint||!hint.classList.contains('fillhint')) return;
     const due=Number(el.dataset.due);
-    hint.hidden=!(el.dataset.hint==='1'&&Number.isFinite(due)&&now>=due);
+    hint.hidden=!(el.dataset.hint==='1'&&known&&Number.isFinite(due)&&now>=due);
   });
 }
+window.paintFills=paintFills;
+setInterval(paintFills,1000);
 function pendingBlock(tk){
   if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet.</p>';
   const p=WW.pending(tk);const fee=(WW.view()&&WW.view().feeText)||'0.5%';
@@ -511,7 +527,7 @@ function tradeBox(tk,w){
   const sellF=live&&WW.canSell(tk,'F');
   const link=s=>`<a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`;
   const act=geo?'disabled':'';
-  const line=fillMarkup(window.WW&&WW.fillState&&WW.fillState(tk));
+  const line=fillMarkup(tk);
   return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b>${live?staleMark(v.staleWithdrawable):''} · minimum 10 USDC · one pending order per wallet. <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
   ${line}
   ${paused?`<p class="note">Buys are paused. Sell and withdraw stay open. ${esc(WW.pauseNote())}</p>`:''}
@@ -646,7 +662,7 @@ function positionsPage(){
     const fadeBadge=row.side==='F'?' style="background:#ff2e8822;color:#FF2E88;border-color:#ff2e8855"':'';
     const pnl=row.pnl==null?'—':esc(row.pnl)+' USDC'+(row.pnlPct==null?'':' ('+(row.pnlPct>0?'+':'')+Number(row.pnlPct).toFixed(2)+'%)');
     const pnlRowCls=row.pnl==null?'':(String(row.pnl).charAt(0)==='-'?'dn':'up');
-    const status=!row.pendingText?'':`${row.fillDeadline==null?'':`<p class="fillline" data-end="${row.fillDeadline}" data-due="${row.fillDue}" data-kind="pending" data-hint="1"></p><div class="note fillhint" hidden>or press Claim to fill it now</div>`}${row.canCancel?`<div class="note">Cancel keeps the ${esc((window.WW&&WW.view&&WW.view().feeText)||'0.5%')} fee.</div>`:''}`;
+    const status=!row.pendingText?'':`${fillMarkup(row.tk)}${row.canCancel?`<div class="note">Cancel keeps the ${esc((window.WW&&WW.view&&WW.view().feeText)||'0.5%')} fee.</div>`:''}`;
     const costNote=row.cost==null&&row.shares!=='0'&&row.shares!=='—'?'<div class="note">Value only. Cost basis was not in the recent log window.</div>':'';
     return `<div class="panel" style="margin-bottom:12px"><div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${esc(w.tk)}</div></div><span class="badge ${row.side==='T'?'b-live':'b-sleep'}"${fadeBadge}>${side}</span></div>
     <div class="kp" style="margin-top:12px"><div><div class="lbl">Side</div><div class="val ${sideCls}">${side}</div></div><div><div class="lbl">Shares</div><div class="val">${esc(row.shares)}</div></div><div><div class="lbl">Value</div><div class="val">${esc(row.value)} USDC${staleMark(row.navStale)}</div></div><div><div class="lbl">Cost</div><div class="val">${row.cost==null?'—':esc(row.cost)+' USDC'}</div></div></div>
