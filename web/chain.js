@@ -1104,6 +1104,7 @@
       value: "0",
       pnl: "—",
       pnlNote: "",
+      pending: null,
       withdrawable: view.withdrawable,
       staleWithdrawable: !!view.staleWithdrawable,
     };
@@ -1114,6 +1115,7 @@
     let anyValue = false;
     let anyPnl = false;
     let pnlGap = false;
+    let pendingBuy = 0n;
     for (const w of window.WALLETS) {
       const raw = pendingRaw[w.tk];
       const book = books[(marketOf(w.tk) || "").toLowerCase()] || {};
@@ -1133,7 +1135,7 @@
         if (costOk) { pnl += worth - lot.cost; pnlCost += lot.cost; anyPnl = true; }
         else if (have != null && have > 0n) pnlGap = true;
         const bits = [];
-        if (buy > 0n) bits.push(V3.formatUnits(buy) + " USDC → " + (side === "T" ? "TAIL" : "FADE"));
+        if (buy > 0n) { pendingBuy += buy; bits.push(V3.formatUnits(buy) + " USDC → " + (side === "T" ? "TAIL" : "FADE")); }
         if (sell > 0n) bits.push("sell " + V3.formatUnits(sell) + " " + (side === "T" ? "TAIL" : "FADE"));
         const canCancel = !!(pend && pend.canCancel && (buy > 0n || sell > 0n));
         out.rows.push({
@@ -1154,6 +1156,7 @@
     }
     out.loading = !out.ready && !out.rows.length;
     out.value = anyValue || out.ready ? V3.formatUnits(value) : "—";
+    if (pendingBuy > 0n) out.pending = V3.formatUnits(pendingBuy);
     if (anyPnl && !pnlGap) {
       out.pnl = V3.formatUnits(pnl);
       out.pnlPct = pnlCost > 0n ? Number(pnl * 10000n / pnlCost) / 100 : null;
