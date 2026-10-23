@@ -196,6 +196,10 @@ test("fill line counts to the epoch end plus the keeper delay", () => {
   assert.deepEqual(V3.orderFillDeadline(1000, 600, 37n, 37n), { deadline: 1620, due: 1600 });
   assert.deepEqual(V3.orderFillDeadline(1000, 600, 31n, 37n), { deadline: 0, due: 0 });
   assert.equal(V3.formatFill("pending", 0, 1800), "Filling now…");
+  assert.equal(V3.FILL_FALLBACK, "Orders fill within ~10 min");
+  assert.equal(V3.fillLineText("order", null, 1800, false), "Orders fill within ~10 min");
+  assert.equal(V3.fillLineText("order", 1620, 1500, true), "Orders fill in ~2:00");
+  assert.equal(V3.fillLineText("pending", 1620, 1620, true), "Filling now…");
 });
 
 test("epoch due rule matches the 10 minute window", () => {

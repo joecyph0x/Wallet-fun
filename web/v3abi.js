@@ -207,6 +207,14 @@
     return prefix + m + ":" + s;
   }
 
+  const FILL_FALLBACK = "Orders fill within ~10 min";
+
+  /** Known lastSettle uses the countdown. Until that read lands, the line still says something. */
+  function fillLineText(kind, deadlineSec, nowSec, known) {
+    if (!known) return FILL_FALLBACK;
+    return formatFill(kind, deadlineSec, nowSec);
+  }
+
   /**
    * `network` is the only switch. Anything other than "mainnet" stays on testnet (998).
    * A mainnet profile must be chain 999. A bad file returns null.
@@ -696,6 +704,8 @@
     fillDeadline: fillDeadline,
     orderFillDeadline: orderFillDeadline,
     formatFill: formatFill,
+    FILL_FALLBACK: FILL_FALLBACK,
+    fillLineText: fillLineText,
     resolve: resolve,
     parseTrace: parseTrace,
     parseGeoJson: parseGeoJson,
