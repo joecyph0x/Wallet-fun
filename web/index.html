@@ -25,6 +25,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap}nav a{padding:7px 12px;border:1px solid 
 .hdr-r{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .pill{padding:6px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font:700 12px 'JetBrains Mono',monospace;white-space:nowrap}
 .pts{color:var(--y)}.live{color:var(--tail)}.snap{color:var(--y)}
+.stale{font:700 10px 'JetBrains Mono',monospace;letter-spacing:.06em;color:var(--y);border:1px solid #5c4a16;border-radius:999px;padding:1px 6px;margin-left:6px;vertical-align:2px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tail);box-shadow:0 0 8px var(--tail);margin-right:6px;animation:pulse 1.2s infinite}
 @keyframes pulse{50%{opacity:.3}}
 .ticker{overflow:hidden;border-bottom:1px solid var(--line);background:#09090f;white-space:nowrap;position:relative}
@@ -145,7 +146,8 @@ const $=s=>document.querySelector(s);
 const fmt=(n,d=0)=>Number(n).toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=n=>{const a=Math.abs(n);const s=n<0?'-':'';if(a>=1e9)return s+'$'+(a/1e9).toFixed(2)+'B';if(a>=1e6)return s+'$'+(a/1e6).toFixed(2)+'M';if(a>=1e3)return s+'$'+(a/1e3).toFixed(1)+'k';return s+'$'+a.toFixed(0)};
 const pct=(x,d=2)=>(x>=0?'+':'')+(x*100).toFixed(d)+'%';
-function unit(){return window.WW&&WW.potsLive()?'USDC':'pts'}
+function unit(x){return x&&x.chainPots?'USDC':'pts'}
+function staleMark(on){return on?' <span class="stale">stale</span>':''}
 function setField(id,v,max){const el=document.getElementById(id);if(!el)return;el.value=v==='MAX'?max:v}
 window.setField=setField;
 const cls=x=>x>0?'up':x<0?'dn':'zz';
@@ -232,6 +234,7 @@ function settle(){
   const now=Date.now();S.settleN++;
   for(const w of WALLETS){const x=S.w[w.tk];if(x.status==='loading')continue;
     let pnl=0,r=0,res={rc:0,d:0};
+    if(x.chainPots){x.prevPos=snapPos(x);x.prevMarks=snapMarks(x);continue}
     if(x.prevPos){pnl=posPnl(x.prevPos,x.prevMarks);r=pnl/Math.max(x.eRef,1);res=applyR(x,r)}
     x.lastR=res.rc;
     // execute queued orders at this (post-settlement) NAV — next-sample execution, no front-running
@@ -334,8 +337,8 @@ function queuedPts(){return U.queue.filter(o=>o.kind==='buy').reduce((a,o)=>a+o.
 function updateHeader(){
   const m=$('#dataMode');
   const v=window.WW&&WW.view?WW.view():null;
-  if(window.WW&&WW.live()){m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent=`${v.withdrawable} USDC`;$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · bets are USDC and fill at the next settle`;WW.paint();return}
-  if(window.WW&&WW.potsLive()){m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent='connect for USDC';$('#foot').textContent=`registry ${WW.registryShort()} · live v3 pots · connect a wallet to deposit and bet`;WW.paint();return}
+  if(window.WW&&WW.live()){const mark=v&&v.staleWithdrawable?' · stale':'';m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent=`${v.withdrawable}${mark} USDC`;$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · bets are USDC and fill at the next settle`;WW.paint();return}
+  if(window.WW&&(WW.potsLive()||(v&&v.configured))){m.innerHTML=`<span class="dot"></span><span class="live">${WW.chainLabel()}</span>`;$('#ptsPill').textContent='connect for USDC';$('#foot').textContent=`registry ${WW.registryShort()} · ${WW.chainLabel()} · open a coin for its USDC pot · connect a wallet to deposit and bet`;WW.paint();return}
   m.innerHTML=S.mode==='live'?`<span class="dot"></span><span class="live">DEMO · browser preview</span>`:S.mode==='snapshot'?`<span class="snap">⚠ SNAPSHOT ${new Date(SNAP.ts).toLocaleString('en-GB')}</span>`:'connecting…';
   $('#ptsPill').textContent=`${fmt(U.pts,0)} pts`;
   $('#foot').textContent=`browser preview until v3 addresses are filled in · ${S.mode} · last poll ${S.lastPoll?hhmm(S.lastPoll):'-'}`;
@@ -453,7 +456,7 @@ function card(w){
    <div class="split"><i style="width:${(share*100).toFixed(1)}%"></i></div>
    <div class="tf"><span class="t">TAIL ${tp.toFixed(4)} <small class="${cls(chg(x,'T'))}">${pct(chg(x,'T'),1)}</small></span><span class="f">FADE ${fp.toFixed(4)} <small class="${cls(chg(x,'F'))}">${pct(chg(x,'F'),1)}</small></span></div>
    <div class="tf" style="font-size:12px"><span class="t">TAIL pays ${pays(x,'T')}</span><span class="f">FADE pays ${pays(x,'F')}</span></div>
-   <div class="tf" style="color:var(--mut);font-weight:400;font-size:11px"><span>pot ${fmt(x.T)} ${unit()}</span><span>last min ${x.lastR?pct(x.lastR,3):'—'}</span><span>pot ${fmt(x.F)} ${unit()}</span></div>
+   <div class="tf" style="color:var(--mut);font-weight:400;font-size:11px"><span>pot ${fmt(x.T)} ${unit(x)}${x.potStale?' · stale':''}</span><span>last min ${x.lastR?pct(x.lastR,3):'—'}</span><span>pot ${fmt(x.F)} ${unit(x)}${x.potStale?' · stale':''}</span></div>
    ${sl?'<div class="sleepov">zzz</div>':''}
   </div>`;
 }
@@ -487,7 +490,7 @@ function tradeBox(tk,w){
   const sellF=live&&WW.canSell(tk,'F');
   const link=s=>`<a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`;
   const act=geo?'disabled':'';
-  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b> · minimum 10 USDC · one pending order per wallet · fills at next settle (~10–20 min). <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
+  return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b>${live?staleMark(v.staleWithdrawable):''} · minimum 10 USDC · one pending order per wallet · fills at next settle (~10–20 min). <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
   ${paused?`<p class="note">Buys are paused. Sell and withdraw stay open. ${esc(WW.pauseNote())}</p>`:''}
   ${st==='redeem-only'?'<p class="note">This whale opted out. New buys are closed. Sells still fill at the next settle.</p>':''}
   <input id="amt" type="number" min="10" step="1" value="10" style="margin-top:8px">
@@ -506,7 +509,7 @@ function detail(tk){
   <div class="dgrid"><div>
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
    <div class="split" style="height:16px"><i style="width:${(share*100).toFixed(1)}%"></i></div>
-   <div class="tf" style="font-size:16px"><span class="t">TAIL-${tk} ${tp.toFixed(4)} · pot ${fmt(x.T)} ${unit()}</span><span class="f">FADE-${tk} ${fp.toFixed(4)} · pot ${fmt(x.F)} ${unit()}</span></div>
+   <div class="tf" style="font-size:16px"><span class="t">TAIL-${tk} ${tp.toFixed(4)} · pot ${fmt(x.T)} ${unit(x)}${x.potStale?' · stale':''}</span><span class="f">FADE-${tk} ${fp.toFixed(4)} · pot ${fmt(x.F)} ${unit(x)}${x.potStale?' · stale':''}</span></div>
    <div class="tf" style="font-size:15px"><span class="t">TAIL pays ${pays(x,'T')}</span><span class="f">FADE pays ${pays(x,'F')}</span></div>
    <p class="note">Pays Nx is both pots divided by this side. One settlement is still capped. Sparkline: first ${x.hist.filter(h=>h.bf).length} points backfilled from the wallet's real 24h pnlHistory; then one point per live settlement.</p></div>
    <div class="panel" style="margin-top:14px"><h3>Live positions (${x.pos.length})</h3><div class="tblwrap"><table><tr><th>Coin</th><th>Side</th><th>Size</th><th>Notional</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>Lev</th><th>Liq</th></tr>
@@ -586,8 +589,8 @@ function balance(){
   const dMax=(wd!=='—'?wd:'0').replace(/[^0-9.]/g,'')||'0';
   return `<div class="hero"><div><h1>Balance</h1><p>Approve USDC, then deposit it into the registry. Withdraw sends your withdrawable balance back to your wallet. ${esc(V3.SEASON)}</p></div><div class="clock"><small>next settlement</small><div class="big cd">--:--</div><small>fills at next settle (~10–20 min)</small></div></div>
   <div class="dgrid"><div class="panel"><h3>Deposit</h3>
-    <div class="note">Wallet USDC: <b class="pts">${esc(wallet)}</b></div>
-    <div class="note">Approved for the registry: <b>${esc(al)}</b></div>
+    <div class="note">Wallet USDC: <b class="pts">${esc(wallet)}</b>${staleMark(v.staleWallet)}</div>
+    <div class="note">Approved for the registry: <b>${esc(al)}</b>${staleMark(v.staleAllowance)}</div>
     <input id="depAmt" type="number" min="1" step="1" value="100" style="margin-top:8px">
     <div class="quick">${[10,100,1000,'MAX'].map(n=>`<span onclick="setField('depAmt','${n}','${wMax}')">${n}</span>`).join('')}</div>
     <div class="btns"><button class="bg" ${dis} onclick="WW.approve()">Approve USDC</button><button class="bt" ${dis} onclick="WW.deposit()">Deposit</button></div>
@@ -595,8 +598,8 @@ function balance(){
     ${v.faucet?`<button class="by" style="width:100%;margin-top:10px" ${dis} onclick="WW.faucet()">Get test USDC</button><p class="note">Testnet only. This calls faucet on tUSDC, at most 1,000 per click. It is not mainnet Circle USDC.</p>`:''}
     ${v.configured?'':`<p class="note">Registry and USDC addresses are placeholders until the testnet deploy is written into config/testnet-v3.json.</p>`}
   </div><div class="panel"><h3>Withdraw</h3>
-    <div class="note">Withdrawable: <b class="pts">${esc(wd)} USDC</b></div>
-    <div class="note">In pending buys: <b>${esc(committed)} USDC</b>. That stays escrowed until the order fills or you cancel.</div>
+    <div class="note">Withdrawable: <b class="pts">${esc(wd)} USDC</b>${staleMark(v.staleWithdrawable)}</div>
+    <div class="note">In pending buys: <b>${esc(committed)} USDC</b>${staleMark(v.stalePending)}. That stays escrowed until the order fills or you cancel.</div>
     ${v.paused?'<p class="note">Buys are paused. Withdraw stays open.</p>':''}
     <input id="wdAmt" type="number" min="0" step="0.000001" value="${esc(dMax)}" style="margin-top:8px">
     <div class="quick"><span onclick="setField('wdAmt','MAX','${dMax}')">MAX</span></div>

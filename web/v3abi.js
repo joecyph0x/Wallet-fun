@@ -372,6 +372,142 @@
     return s + "%";
   }
 
+  /** First 32-byte word, or null when the payload is empty or not hex. */
+  function wordHex(result) {
+    const h = String(result == null ? "" : result).replace(/^0x/i, "");
+    if (!/^[0-9a-fA-F]+$/.test(h) || h.length < 64) return null;
+    return h.slice(0, 64);
+  }
+
+  function callOk(row) {
+    return !!(row && !row.error && wordHex(row.result));
+  }
+
+  /**
+   * A failed or empty eth_call keeps the previous bigint and is marked stale.
+   * A successful 0 replaces it. The first failure leaves the value unset so the UI
+   * can show a blank instead of a fake 0.
+   */
+  function acceptRead(row, prev) {
+    if (!callOk(row)) return { use: prev == null ? null : prev, stale: true, ok: false };
+    return { use: BigInt("0x" + wordHex(row.result)), stale: false, ok: true };
+  }
+
+  function retryWaitMs(attempt) {
+    const table = [200, 600, 1400, 4000];
+    const i = attempt < 0 ? 0 : attempt;
+    return table[Math.min(i, table.length - 1)];
+  }
+
+  function isRateLimit(status, text) {
+    if (status === 429 || status === 502 || status === 503) return true;
+    return /rate|429|too many|limit exceeded|overloaded|timeout/.test(String(text || "").toLowerCase());
+  }
+
+  function transientRow(row) {
+    if (!row) return true;
+    if (callOk(row)) return false;
+    const msg = JSON.stringify(row.error || row.result || "").toLowerCase();
+    if (/revert|execution reverted/.test(msg)) return false;
+    return true;
+  }
+
+  /**
+   * eth_call in JSON-RPC batches of `batchSize` (default 4), one batch at a time.
+   * A 429, a 5xx, a single error object, a thrown send, or a missing row retries
+   * that chunk with backoff. Rows that never arrive are `{ error }` so the caller
+   * can keep the last good value. `send(payload)` resolves `{ status, body }`.
+   */
+  async function readCalls(opts) {
+    const o = opts || {};
+    const calls = o.calls || [];
+    const send = o.send;
+    const retries = o.retries == null ? 3 : o.retries;
+    const batchSize = o.batchSize == null ? 4 : Math.max(1, o.batchSize);
+    const sleep = o.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    if (typeof send !== "function") throw new Error("readCalls needs send");
+    const out = new Array(calls.length);
+    for (let i = 0; i < calls.length; i += batchSize) {
+      const slice = calls.slice(i, i + batchSize);
+      let rows = null;
+      let reason = "rpc failed";
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        if (attempt > 0) await sleep(retryWaitMs(attempt - 1));
+        let res;
+        try {
+          const payload = slice.map((it, j) => ({
+            jsonrpc: "2.0",
+            id: j,
+            method: "eth_call",
+            params: [{ to: it.to, data: it.data }, it.block || "latest"],
+          }));
+          res = await send(payload);
+        } catch (e) {
+          reason = (e && e.message) || "rpc failed";
+          continue;
+        }
+        const status = res && res.status != null ? Number(res.status) : 200;
+        let body = res ? res.body : null;
+        if (typeof body === "string") {
+          const raw = body;
+          try { body = JSON.parse(raw); }
+          catch (e) {
+            reason = raw.slice(0, 180) || ("rpc " + status);
+            if (isRateLimit(status, raw) || status >= 400 || status === 0) continue;
+            body = { error: { message: reason } };
+          }
+        }
+        const blob = body && body.error ? JSON.stringify(body.error) : "";
+        if (status === 429 || status >= 500 || isRateLimit(status, blob) || (body && !Array.isArray(body) && body.error)) {
+          reason = (body && body.error && body.error.message) || blob || ("rpc " + status);
+          continue;
+        }
+        const list = Array.isArray(body) ? body : (body ? [body] : []);
+        const byId = new Map();
+        for (let k = 0; k < list.length; k++) {
+          const row = list[k];
+          if (!row) continue;
+          if (row.id == null && list.length === 1) byId.set(0, row);
+          else if (row.id != null) byId.set(Number(row.id), row);
+        }
+        const got = slice.map((_, j) => (byId.has(j) ? byId.get(j) : { error: { message: "missing" } }));
+        if (got.some(transientRow) && attempt < retries) {
+          reason = "incomplete batch";
+          continue;
+        }
+        rows = got;
+        break;
+      }
+      if (!rows) rows = slice.map(() => ({ error: { message: reason } }));
+      for (let j = 0; j < rows.length; j++) out[i + j] = rows[j];
+    }
+    return out;
+  }
+
+  /**
+   * A pot read is fresh until lastSettle + epoch. A zero lastSettle uses fetchedAt
+   * so a due market is not refetched on every balance tick.
+   */
+  function potFresh(book, nowSec, epochSec) {
+    if (!book) return false;
+    const epoch = Number(epochSec);
+    const windowSec = Number.isFinite(epoch) && epoch > 0 ? epoch : 600;
+    const now = Number(nowSec);
+    if (!Number.isFinite(now)) return false;
+    const last = book.last == null ? 0 : Number(book.last);
+    if (Number.isFinite(last) && last > 0) return now < last + windowSec;
+    const fetched = Number(book.fetchedAt);
+    return Number.isFinite(fetched) && fetched > 0 && now < fetched + windowSec;
+  }
+
+  function needsProviderFallback(rows, indexes) {
+    const list = indexes || [0, 1, 2];
+    for (let i = 0; i < list.length; i++) {
+      if (!callOk(rows && rows[list[i]])) return true;
+    }
+    return false;
+  }
+
   return {
     ZERO: ZERO,
     UNIT: UNIT,
@@ -411,5 +547,12 @@
     geoActive: geoActive,
     gateGeo: gateGeo,
     feeText: feeText,
+    callOk: callOk,
+    acceptRead: acceptRead,
+    retryWaitMs: retryWaitMs,
+    isRateLimit: isRateLimit,
+    readCalls: readCalls,
+    potFresh: potFresh,
+    needsProviderFallback: needsProviderFallback,
   };
 });
