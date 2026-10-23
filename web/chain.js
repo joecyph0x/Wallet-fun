@@ -116,7 +116,7 @@
   }
   function explain(e) {
     const m = (e && e.message) ? e.message : String(e);
-    if (/4001|rejected|denied/i.test(m)) return "Wallet request rejected.";
+    if (V3.isReject(e) || /4001|rejected|denied/i.test(m)) return "Wallet request rejected.";
     const data = e && (e.data || (e.error && e.error.data));
     const blob = (m + " " + (typeof data === "string" ? data : "")).toLowerCase();
     const keys = Object.keys(V3.ERRORS);
@@ -298,27 +298,74 @@
     return geo;
   }
 
+  function chainSwitchError() {
+    onChain = false;
+    return new Error("Could not switch the wallet to " + cfg.chainName + " (chain " + cfg.chainId + ").");
+  }
+
+  async function readWalletChain(eth) {
+    try {
+      const got = await V3.withTimeout(eth.request({ method: "eth_chainId" }), 8000, "The wallet did not report its chain.");
+      return Number.parseInt(got, 16);
+    } catch (e) {
+      if (V3.isReject(e)) throw e;
+      throw chainSwitchError();
+    }
+  }
+
   async function ensureChain(eth) {
     const hex = chainHex();
-    try {
-      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
-    } catch (e) {
-      const code = e && (e.code || (e.data && e.data.originalError && e.data.originalError.code));
-      if (code !== 4902 && !/4902|unrecognized chain/i.test(String(e && e.message))) throw e;
-      await eth.request({
-        method: "wallet_addEthereumChain",
-        params: [{
-          chainId: hex,
-          chainName: cfg.chainName,
-          nativeCurrency: cfg.nativeCurrency,
-          rpcUrls: [cfg.rpcUrl],
-          blockExplorerUrls: cfg.explorer ? [cfg.explorer] : [],
-        }],
-      });
+    let current = await readWalletChain(eth);
+    if (current !== cfg.chainId) {
+      try {
+        await V3.withTimeout(
+          eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] }),
+          20000,
+          "The wallet did not confirm the chain switch."
+        );
+      } catch (e) {
+        if (V3.isReject(e)) throw e;
+        const code = e && (e.code != null ? e.code : (e.data && e.data.originalError && e.data.originalError.code));
+        const unknown = code === 4902 || code === "4902" || /4902|unrecognized chain/i.test(String(e && e.message || ""));
+        if (!unknown) throw chainSwitchError();
+        try {
+          await V3.withTimeout(eth.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: hex,
+              chainName: cfg.chainName,
+              nativeCurrency: cfg.nativeCurrency,
+              rpcUrls: [cfg.rpcUrl],
+              blockExplorerUrls: cfg.explorer ? [cfg.explorer] : [],
+            }],
+          }), 20000, "The wallet did not add the chain.");
+        } catch (addErr) {
+          if (V3.isReject(addErr)) throw addErr;
+          throw chainSwitchError();
+        }
+      }
+      current = await readWalletChain(eth);
     }
-    const got = await eth.request({ method: "eth_chainId" });
-    if (Number.parseInt(got, 16) !== cfg.chainId) throw new Error("Wallet is not on " + cfg.chainName + " (chain " + cfg.chainId + ").");
+    if (current !== cfg.chainId) throw chainSwitchError();
     onChain = true;
+  }
+
+  async function syncAccount(eth) {
+    let accounts;
+    try {
+      accounts = await V3.withTimeout(eth.request({ method: "eth_accounts" }), 8000, "The wallet did not answer.");
+    } catch (e) {
+      if (V3.isReject(e)) throw e;
+      throw new Error("The wallet did not answer. Unlock it and try again.");
+    }
+    const next = V3.pickAccount(accounts, account);
+    if (!next) {
+      account = null;
+      onChain = false;
+      throw new Error("Connect a wallet on " + chainLabel() + ".");
+    }
+    account = next;
+    return next;
   }
 
   function snapshotDemo() {
@@ -664,45 +711,74 @@
     window.U.deposited = window.U.deposited || num6(withdrawable);
   }
 
-  async function refresh() {
+  async function refresh(force) {
     if (!window.S || !window.WALLETS) return;
     try {
-      const ok = await refreshPots();
-      if (ok && live()) await refreshUser();
-      else if (live()) await refreshUser();
+      await refreshPots();
+      if (live()) await refreshUser();
     } catch (e) {
       console.warn(e);
     }
     paint();
-    if (window.softRender) window.softRender();
+    if (force && typeof window.render === "function") window.render();
+    else if (window.softRender) window.softRender();
   }
 
   async function send(to, data) {
     const eth = window.ethereum;
+    if (!eth) throw new Error("No injected wallet in this browser.");
+    await syncAccount(eth);
+    await ensureChain(eth);
+    toast("Confirm this in your wallet.");
     const tx = { from: account, to: to, data: data };
-    await eth.request({ method: "eth_estimateGas", params: [tx] });
-    const hash = await eth.request({ method: "eth_sendTransaction", params: [tx] });
-    toast("Submitted " + short(hash) + ". Waiting for the receipt.");
-    for (let i = 0; i < 45; i++) {
-      const rec = await rpc("eth_getTransactionReceipt", [hash]);
-      if (rec) {
-        if (rec.status === "0x0") throw new Error("Transaction reverted.");
-        return hash;
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    throw new Error("Still pending. Hash " + hash);
+    const result = await V3.driveSend({
+      tx: tx,
+      request: (params) => eth.request(params),
+      receipt: (hash) => rpc("eth_getTransactionReceipt", [hash]),
+      wait: () => new Promise((r) => setTimeout(r, 2000)),
+      onSubmitted: (hash) => toast("Submitted " + short(hash) + ". Waiting for the receipt."),
+    });
+    return result.hash;
   }
 
   async function ready(action) {
-    if (busy) return false;
+    if (busy) { toast(V3.BUSY_TOAST); return false; }
     const g = await ensureGeo();
     if (g.blocked) { toast(g.notice); paint(); if (window.softRender) window.softRender(); return false; }
-    if (!cfg) { toast("config/testnet-v3.json did not load."); return false; }
-    if (!configured()) { toast(missing(action === "faucet" ? "usdc" : "registry")); return false; }
-    if (!window.ethereum) { toast("No injected wallet in this browser."); return false; }
+    const gate = V3.readyCheck({
+      busy: false,
+      geoBlocked: false,
+      cfg: !!cfg,
+      configured: configured(),
+      missing: missing(action === "faucet" ? "usdc" : "registry"),
+      hasEth: !!window.ethereum,
+      live: true,
+      chainLabel: chainLabel(),
+    });
+    if (!gate.ok) { toast(gate.toast); return false; }
+    try {
+      await syncAccount(window.ethereum);
+      await ensureChain(window.ethereum);
+    } catch (e) {
+      toast(explain(e));
+      paint();
+      if (window.softRender) window.softRender();
+      return false;
+    }
     if (!live()) { toast("Connect a wallet on " + chainLabel() + "."); return false; }
     return true;
+  }
+
+  async function withBusy(fn) {
+    busy = true;
+    try {
+      await fn();
+    } catch (e) {
+      toast(explain(e));
+    } finally {
+      busy = false;
+      try { await refresh(true); } catch (e) { console.warn(e); }
+    }
   }
 
   function amountFrom(id) {
@@ -730,27 +806,20 @@
       if (raw == null || raw === 0n) return toast("Enter a USDC amount.");
       if (raw < min) return toast("Minimum order is " + V3.formatUnits(min) + " USDC.");
       if (raw > withdrawable) return toast("Not enough withdrawable USDC. Deposit on the balance screen.");
-      busy = true;
-      try {
+      return withBusy(async () => {
         const assets = await assetsFor(market);
         await send(market, V3.encodeBuy(sideN, raw, assets));
         toast("Committed " + V3.formatUnits(raw) + " USDC → " + (side === "T" ? "TAIL" : "FADE") + ". Fills at next settle (~10–20 min).");
-        await refresh();
-      } catch (e) { toast(explain(e)); }
-      finally { busy = false; }
-      return;
+      });
     }
     const raw = shares[tk + ":" + side] || 0n;
     if (raw === 0n) return toast("Nothing to sell.");
     if (st === "uninitialized") return toast("This market is not open.");
-    busy = true;
-    try {
+    return withBusy(async () => {
       const assets = await assetsFor(market);
       await send(market, V3.encodeSell(sideN, raw, assets));
       toast("Committed a sell. Fills at next settle (~10–20 min). USDC returns to your withdrawable balance.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function cancel(tk) {
@@ -761,28 +830,22 @@
     if (!pend || !pend.legs.length) return toast("No pending order on this coin.");
     if (!pend.canCancel) return toast("The settle window is open, so this order can no longer be cancelled. Claim it to fill.");
     const ok = window.confirm("Cancel this order? A " + view.feeText + " fee is kept. The rest comes back to your withdrawable balance.");
-    if (!ok) return;
-    busy = true;
-    try {
+    if (!ok) return toast("Cancel dismissed. The order is still pending.");
+    return withBusy(async () => {
       await send(market, V3.SEL.cancel);
       toast("Cancelled. The " + view.feeText + " fee was kept.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function claim(tk) {
     if (!(await ready("bet"))) return;
     const market = marketOf(tk);
     if (!market) return toast(missingMarket(tk));
-    busy = true;
-    try {
+    return withBusy(async () => {
       const assets = await assetsFor(market);
       await send(market, V3.encodeClaim(assets));
       toast("Claimed. A due market was sampled, and your fill was applied.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function exit(tk) {
@@ -790,13 +853,10 @@
     const market = marketOf(tk);
     if (!market) return toast(missingMarket(tk));
     if (!redeemOpen()) return toast(pauseNote() || "Pro-rata redeem is not open yet.");
-    busy = true;
-    try {
+    return withBusy(async () => {
       await send(market, V3.SEL.exitAtLastNav);
       toast("Redeemed pro-rata into your withdrawable balance.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function approve() {
@@ -804,13 +864,10 @@
     const raw = amountFrom("depAmt");
     if (raw == null || raw === 0n) return toast("Enter a USDC amount to approve.");
     if (allowance >= raw) return toast("USDC is already approved for this amount. You can deposit.");
-    busy = true;
-    try {
+    return withBusy(async () => {
       await send(cfg.usdc, V3.encodeAddrUint(V3.SEL.approve, cfg.registry, raw));
       toast("Approved " + V3.formatUnits(raw) + " USDC for the registry. Deposit is the next step.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function deposit() {
@@ -819,13 +876,28 @@
     if (raw == null || raw === 0n) return toast("Enter a USDC amount to deposit.");
     if (allowance < raw) return toast("Approve USDC for the registry first.");
     if (raw > walletBal) return toast("Not enough USDC in the wallet.");
-    busy = true;
-    try {
+    return withBusy(async () => {
       await send(cfg.registry, V3.encodeUint(V3.SEL.deposit, raw));
       toast("Deposited " + V3.formatUnits(raw) + " USDC. It is now withdrawable, and you can bet it.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
+  }
+
+  async function approveAndDeposit() {
+    if (!(await ready("deposit"))) return;
+    const raw = amountFrom("depAmt");
+    if (raw == null || raw === 0n) return toast("Enter a USDC amount to deposit.");
+    if (raw > walletBal) return toast("Not enough USDC in the wallet.");
+    return withBusy(async () => {
+      if (allowance < raw) {
+        await send(cfg.usdc, V3.encodeAddrUint(V3.SEL.approve, cfg.registry, raw));
+        toast("Approved " + V3.formatUnits(raw) + " USDC. Depositing it next.");
+        await refresh(true);
+      }
+      if (allowance < raw) throw new Error("Approval did not cover this deposit yet. Press Deposit to finish.");
+      if (raw > walletBal) throw new Error("Not enough USDC in the wallet.");
+      await send(cfg.registry, V3.encodeUint(V3.SEL.deposit, raw));
+      toast("Deposited " + V3.formatUnits(raw) + " USDC. It is now withdrawable, and you can bet it.");
+    });
   }
 
   async function withdraw() {
@@ -833,13 +905,10 @@
     const raw = amountFrom("wdAmt");
     if (raw == null || raw === 0n) return toast("Enter a USDC amount to withdraw.");
     if (raw > withdrawable) return toast("That is more than your withdrawable balance.");
-    busy = true;
-    try {
+    return withBusy(async () => {
       await send(cfg.registry, V3.encodeUint(V3.SEL.withdraw, raw));
       toast("Withdrew " + V3.formatUnits(raw) + " USDC to your wallet.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function faucet() {
@@ -847,18 +916,21 @@
     if (!cfg.faucet) return toast("The faucet is only on testnet.");
     if (!V3.isSet(cfg.usdc)) return toast(missing("usdc"));
     const amt = V3.faucetRaw(cfg.faucetAmount);
-    busy = true;
-    try {
+    return withBusy(async () => {
       await send(cfg.usdc, V3.encodeUint(V3.SEL.faucet, amt));
       toast("Sent " + V3.formatUnits(amt) + " tUSDC to your wallet. At most 1,000 per call. It is not mainnet USDC.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
-    finally { busy = false; }
+    });
   }
 
   async function optOut(whale) {
+    if (busy) return toast(V3.BUSY_TOAST);
     const g = await ensureGeo();
     if (g.blocked) return toast(g.notice);
+    if (!window.ethereum) return toast("No injected wallet in this browser.");
+    try {
+      await syncAccount(window.ethereum);
+      await ensureChain(window.ethereum);
+    } catch (e) { return toast(explain(e)); }
     if (!live()) return toast("Connect the whale's own wallet on " + (cfg ? cfg.chainName : "HyperEVM testnet") + " to opt out.");
     const eth = window.ethereum;
     const typed = {
@@ -875,14 +947,18 @@
       domain: { name: "whalewallet.fun", version: "3", chainId: cfg.chainId, verifyingContract: cfg.registry },
       message: { wallet: whale },
     };
-    try {
-      const sig = await eth.request({ method: "eth_signTypedData_v4", params: [account, JSON.stringify(typed)] });
-      const hex = sig.replace(/^0x/, "");
+    return withBusy(async () => {
+      const sig = await V3.withTimeout(
+        eth.request({ method: "eth_signTypedData_v4", params: [account, JSON.stringify(typed)] }),
+        120000,
+        "The wallet did not respond. Check Rabby and try again."
+      );
+      const hex = String(sig || "").replace(/^0x/, "");
+      if (!/^[0-9a-fA-F]+$/.test(hex)) throw new Error("The wallet did not return a signature.");
       const data = V3.SEL.optOut + V3.addrWord(whale) + V3.word(64) + V3.word(hex.length / 2) + hex.padEnd(Math.ceil(hex.length / 64) * 64, "0");
       await send(cfg.registry, data);
       toast("Opt-out submitted. Buys refund. Sells still fill at the frozen NAV.");
-      await refresh();
-    } catch (e) { toast(explain(e)); }
+    });
   }
 
   window.WW = {
@@ -898,6 +974,7 @@
     exit: exit,
     approve: approve,
     deposit: deposit,
+    approveAndDeposit: approveAndDeposit,
     withdraw: withdraw,
     faucet: faucet,
     optOut: optOut,

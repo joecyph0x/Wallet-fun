@@ -249,6 +249,121 @@
     return x;
   }
 
+  const BUSY_TOAST = "Another transaction is still in progress…";
+
+  function isReject(e) {
+    const nested = e && e.data && e.data.originalError;
+    const code = e && (e.code != null ? e.code : (nested && nested.code));
+    if (code === 4001 || code === "4001") return true;
+    return /4001|rejected|denied/i.test(String((e && e.message) || e || ""));
+  }
+
+  /** Keep the connected account when it is still authorized. Otherwise use the wallet's first account. */
+  function pickAccount(accounts, current) {
+    const list = [];
+    const src = Array.isArray(accounts) ? accounts : [];
+    for (let i = 0; i < src.length; i++) {
+      const a = src[i];
+      if (typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a)) list.push(a);
+    }
+    if (!list.length) return null;
+    const cur = String(current || "").toLowerCase();
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].toLowerCase() === cur) return list[i];
+    }
+    return list[0];
+  }
+
+  function withTimeout(promise, ms, message) {
+    let timer;
+    const work = Promise.resolve(promise);
+    work.catch(() => {});
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(message || "Timed out.");
+        err.timeout = true;
+        reject(err);
+      }, ms);
+    });
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  }
+
+  /** Every failure here is a toast. `busy` must not return quietly. */
+  function readyCheck(state) {
+    const s = state || {};
+    if (s.busy) return { ok: false, toast: BUSY_TOAST };
+    if (s.geoBlocked) return { ok: false, toast: s.geoNotice || "Not offered in your region." };
+    if (!s.cfg) return { ok: false, toast: "config/testnet-v3.json did not load." };
+    if (!s.configured) return { ok: false, toast: s.missing || "Contract addresses are not filled in yet." };
+    if (!s.hasEth) return { ok: false, toast: "No injected wallet in this browser." };
+    if (!s.live) return { ok: false, toast: "Connect a wallet on " + (s.chainLabel || "the configured chain") + "." };
+    return { ok: true };
+  }
+
+  /** A hung or failed dapp-side estimate must not block the wallet popup. A user rejection still stops the send. */
+  async function estimateOrSkip(request, tx, ms) {
+    try {
+      await withTimeout(request({ method: "eth_estimateGas", params: [tx] }), ms, "estimate");
+      return { estimated: true, skipped: false };
+    } catch (e) {
+      if (isReject(e)) {
+        const err = e instanceof Error ? e : new Error("Wallet request rejected.");
+        err.rejected = true;
+        err.code = e && e.code != null ? e.code : 4001;
+        throw err;
+      }
+      return { estimated: false, skipped: true };
+    }
+  }
+
+  /**
+   * Send a wallet transaction. Estimate is best-effort. Send and each receipt read are timed
+   * so the caller can always clear its busy flag.
+   */
+  async function driveSend(opts) {
+    const o = opts || {};
+    const tx = o.tx;
+    const request = o.request;
+    if (typeof request !== "function") throw new Error("No injected wallet in this browser.");
+    await estimateOrSkip(request, tx, o.estimateMs == null ? 2500 : o.estimateMs);
+    let hash;
+    try {
+      hash = await withTimeout(
+        request({ method: "eth_sendTransaction", params: [tx] }),
+        o.sendMs == null ? 120000 : o.sendMs,
+        "The wallet did not respond. Check Rabby and try again."
+      );
+    } catch (e) {
+      if (e && (e.timeout || e.rejected)) {
+        throw new Error(e.timeout ? "The wallet did not respond. Check Rabby and try again." : (e.message || "Wallet request rejected."));
+      }
+      throw e;
+    }
+    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]+$/.test(hash)) {
+      throw new Error("The wallet did not return a transaction hash.");
+    }
+    if (o.onSubmitted) o.onSubmitted(hash);
+    const tries = o.receiptTries == null ? 20 : o.receiptTries;
+    for (let i = 0; i < tries; i++) {
+      let rec = null;
+      try {
+        rec = await withTimeout(o.receipt(hash), o.receiptMs == null ? 8000 : o.receiptMs, "receipt");
+      } catch (e) {
+        rec = null;
+      }
+      if (rec) {
+        const status = String(rec.status == null ? "" : rec.status).toLowerCase();
+        if (status === "0x0" || status === "0x00" || status === "0") throw new Error("Transaction reverted.");
+        return { hash: hash, receipt: rec };
+      }
+      if (o.wait) await o.wait(i);
+    }
+    const pending = new Error("Still pending. Hash " + hash);
+    pending.pending = true;
+    pending.hash = hash;
+    throw pending;
+  }
+
   function feeText(bps) {
     const n = Number(bps);
     const v = Number.isFinite(n) && n >= 0 ? n : 50;
@@ -280,6 +395,13 @@
     parseUsdc: parseUsdc,
     formatUnits: formatUnits,
     faucetRaw: faucetRaw,
+    BUSY_TOAST: BUSY_TOAST,
+    isReject: isReject,
+    pickAccount: pickAccount,
+    withTimeout: withTimeout,
+    readyCheck: readyCheck,
+    estimateOrSkip: estimateOrSkip,
+    driveSend: driveSend,
     isDue: isDue,
     resolve: resolve,
     parseTrace: parseTrace,

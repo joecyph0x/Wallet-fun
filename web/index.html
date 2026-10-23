@@ -591,6 +591,7 @@ function balance(){
     <input id="depAmt" type="number" min="1" step="1" value="100" style="margin-top:8px">
     <div class="quick">${[10,100,1000,'MAX'].map(n=>`<span onclick="setField('depAmt','${n}','${wMax}')">${n}</span>`).join('')}</div>
     <div class="btns"><button class="bg" ${dis} onclick="WW.approve()">Approve USDC</button><button class="bt" ${dis} onclick="WW.deposit()">Deposit</button></div>
+    <button class="by" style="width:100%;margin-top:10px" ${dis} onclick="WW.approveAndDeposit()">Approve & deposit</button>
     ${v.faucet?`<button class="by" style="width:100%;margin-top:10px" ${dis} onclick="WW.faucet()">Get test USDC</button><p class="note">Testnet only. This calls faucet on tUSDC, at most 1,000 per click. It is not mainnet Circle USDC.</p>`:''}
     ${v.configured?'':`<p class="note">Registry and USDC addresses are placeholders until the testnet deploy is written into config/testnet-v3.json.</p>`}
   </div><div class="panel"><h3>Withdraw</h3>
