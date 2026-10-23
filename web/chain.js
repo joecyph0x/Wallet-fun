@@ -19,12 +19,23 @@
   let withdrawable = 0n;
   let walletBal = 0n;
   let allowance = 0n;
+  const known = { withdrawable: false, wallet: false, allowance: false };
+  let floorWd = null;
+  let floorWallet = null;
+  let walletCeiling = null;
+  let floorUntil = 0;
   let pausedFlag = false;
   let pauseSinceSec = 0;
   let feeBps = 50;
+  let pauseAt = 0;
+  let userGen = 0;
+  let potGen = 0;
+  let userTimer = null;
   const shares = {};
+  const shareKnown = {};
   const books = {};
   const basis = {};
+  const pendingRaw = {};
   let demoSnap = null;
 
   const view = {
@@ -39,6 +50,11 @@
     holds: {},
     pending: {},
     status: {},
+    stale: false,
+    staleWallet: false,
+    staleWithdrawable: false,
+    staleAllowance: false,
+    stalePending: false,
   };
 
   function $(s) { return document.querySelector(s); }
@@ -143,29 +159,56 @@
     return body.result;
   }
 
-  async function batch(items) {
-    const out = new Array(items.length);
-    for (let i = 0; i < items.length; i += 20) {
-      const slice = items.slice(i, i + 20);
-      const payload = slice.map((it, j) => ({
-        jsonrpc: "2.0", id: j, method: "eth_call", params: [{ to: it.to, data: it.data }, "latest"],
-      }));
-      const res = await fetch(cfg.rpcUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await res.json();
-      const rows = Array.isArray(body) ? body : [body];
-      const byId = new Map(rows.map((row) => [row.id, row]));
-      slice.forEach((_, j) => { out[i + j] = byId.get(j); });
-    }
-    return out;
+  function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+  function nowSec() { return Math.floor(Date.now() / 1000); }
+
+  function viewedTicker() {
+    const path = String((typeof location !== "undefined" && location.hash) || "").replace(/^#/, "").split("?")[0];
+    const match = /^\/w\/([A-Za-z0-9]+)/.exec(path);
+    return match ? match[1].toUpperCase() : "";
   }
 
-  async function chainNow() {
-    const block = await rpc("eth_getBlockByNumber", ["latest", false]);
-    return Number.parseInt(block.timestamp, 16);
+  async function postRpc(payload) {
+    const res = await fetch(cfg.rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let body = text;
+    try { body = JSON.parse(text); } catch (e) { body = text; }
+    return { status: res.status, body: body };
+  }
+
+  function readChain(calls) {
+    return V3.readCalls({ calls: calls, send: postRpc, retries: 3, batchSize: 4, sleep: sleep });
+  }
+
+  async function ethCall(to, data) {
+    const eth = window.ethereum;
+    if (!eth || !eth.request) return { error: { message: "no wallet rpc" } };
+    try {
+      const result = await V3.withTimeout(
+        eth.request({ method: "eth_call", params: [{ to: to, data: data }, "latest"] }),
+        8000,
+        "wallet rpc"
+      );
+      return typeof result === "string" ? { result: result } : { error: { message: "empty wallet rpc" } };
+    } catch (e) {
+      return { error: { message: (e && e.message) || "wallet rpc" } };
+    }
+  }
+
+  async function fillFromWallet(calls, rows, indexes) {
+    const next = rows.slice();
+    for (let i = 0; i < indexes.length; i++) {
+      const at = indexes[i];
+      if (V3.callOk(next[at])) continue;
+      const row = await ethCall(calls[at].to, calls[at].data);
+      if (V3.callOk(row)) next[at] = row;
+    }
+    return next;
   }
 
   async function info(body) {
@@ -240,8 +283,7 @@
 
   async function assetsFor(market) {
     const book = books[market.toLowerCase()] || { last: 0n };
-    const now = await chainNow();
-    const due = V3.isDue(book.last || 0n, now, cfg.epochSec);
+    const due = V3.isDue(book.last || 0n, nowSec(), cfg.epochSec);
     let built;
     try { built = await buildBook(market); }
     catch (e) { built = { ok: false, reason: "info" }; }
@@ -387,9 +429,10 @@
     const pause = pausedFlag ? " Buys are paused. Sell and withdraw stay open." : "";
     if (!cfg) return where + " config/testnet-v3.json did not load, so pots stay on the browser preview.";
     if (!configured()) return where + " v3 addresses are placeholders in config/testnet-v3.json, so these pots are a browser preview until the testnet deploy is filled in." + pause;
-    if (potsFailed && !potsLive) return "Could not read the v3 pots, so this page is a browser preview." + pause;
     if (live()) return where + " Withdrawable USDC sits in the registry. Fills at next settle (~10–20 min). Minimum 10 USDC. One pending order per wallet." + pause;
     if (potsLive) return where + " Live v3 pots. Connect a wallet to deposit USDC and bet. Fills at next settle (~10–20 min)." + pause;
+    if (potsFailed) return where + " This coin's pot did not load. The last good balance is still on screen." + pause;
+    if (configured()) return where + " Open a coin to read its USDC pot. Connect a wallet to deposit and bet. Fills at next settle (~10–20 min)." + pause;
     return where + " Market addresses are still placeholders, so these pots are a browser preview." + pause;
   }
 
@@ -448,7 +491,12 @@
     if (eth && eth.on) {
       eth.on("accountsChanged", (xs) => {
         if (!xs || !xs.length) disconnect();
-        else if (live() && !geo.blocked) { account = xs[0]; refresh().catch((e) => toast(explain(e))); }
+        else if (live() && !geo.blocked) {
+          const next = xs[0];
+          if (!account || next.toLowerCase() !== account.toLowerCase()) resetMoney();
+          account = next;
+          refresh().catch((e) => toast(explain(e)));
+        }
       });
       eth.on("chainChanged", () => {
         if (!account || geo.blocked) return;
@@ -457,6 +505,20 @@
     }
     ensureGeo();
     paint();
+    if (!userTimer) {
+      userTimer = setInterval(() => {
+        if (!live() || busy) return;
+        refreshUser().then(() => {
+          paint();
+          if (window.softRender) window.softRender();
+        }).catch((e) => console.warn(e));
+      }, 15000);
+    }
+    window.addEventListener("hashchange", () => {
+      refresh(false).catch((e) => console.warn(e));
+    });
+    // boot() may have refreshed before this config finished loading.
+    refresh(false).catch((e) => console.warn(e));
   }
 
   function attach() {
@@ -487,19 +549,36 @@
     }
   }
 
-  function disconnect() {
-    account = null;
-    onChain = false;
+  function resetMoney() {
     withdrawable = 0n;
     walletBal = 0n;
     allowance = 0n;
-    Object.keys(shares).forEach((k) => delete shares[k]);
+    known.withdrawable = false;
+    known.wallet = false;
+    known.allowance = false;
+    floorWd = null;
+    floorWallet = null;
+    walletCeiling = null;
+    floorUntil = 0;
+    Object.keys(shares).forEach((k) => { delete shares[k]; delete shareKnown[k]; });
+    Object.keys(pendingRaw).forEach((k) => delete pendingRaw[k]);
     view.wallet = "—";
     view.withdrawable = "—";
     view.allowance = "—";
     view.committed = "0";
     view.holds = {};
     view.pending = {};
+    view.stale = false;
+    view.staleWallet = false;
+    view.staleWithdrawable = false;
+    view.staleAllowance = false;
+    view.stalePending = false;
+  }
+
+  function disconnect() {
+    account = null;
+    onChain = false;
+    resetMoney();
     restoreDemo();
     toast(potsLive ? "Disconnected. Pots stay on the v3 read." : "Back to the browser preview.");
     paint();
@@ -510,109 +589,106 @@
   const STATUS = ["uninitialized", "live", "redeem-only"];
 
   function applyPause(rows) {
-    const paused = rows[0] && !rows[0].error ? u256(wordsOf(rows[0].result)[0]) !== 0n : pausedFlag;
-    const since = rows[1] && !rows[1].error ? Number(u256(wordsOf(rows[1].result)[0])) : pauseSinceSec;
-    const fee = rows[2] && !rows[2].error ? Number(u256(wordsOf(rows[2].result)[0])) : feeBps;
-    pausedFlag = paused;
-    pauseSinceSec = since;
-    feeBps = fee;
+    if (!rows[0] || !rows[1] || !rows[2] || !V3.callOk(rows[0]) || !V3.callOk(rows[1]) || !V3.callOk(rows[2])) return false;
+    pausedFlag = u256(wordsOf(rows[0].result)[0]) !== 0n;
+    pauseSinceSec = Number(u256(wordsOf(rows[1].result)[0]));
+    feeBps = Number(u256(wordsOf(rows[2].result)[0]));
     view.paused = pausedFlag;
     view.feeText = V3.feeText(feeBps);
+    pauseAt = nowSec();
+    return true;
   }
 
-  async function refreshPots() {
-    if (!cfg || !window.S || !window.WALLETS) { potsLive = false; return false; }
-    const jobs = [];
-    if (V3.isSet(cfg.registry)) {
-      jobs.push(
-        { to: cfg.registry, data: V3.SEL.buysPaused },
-        { to: cfg.registry, data: V3.SEL.pauseSince },
-        { to: cfg.registry, data: V3.SEL.feeBps },
-      );
+  function touchSettleClock() {
+    if (!window.S || !cfg) return;
+    let next = null;
+    const keys = Object.keys(books);
+    for (let i = 0; i < keys.length; i++) {
+      const last = books[keys[i]].last;
+      if (!last || last === 0n) continue;
+      const dueAt = (Number(last) + cfg.epochSec) * 1000;
+      if (next == null || dueAt < next) next = dueAt;
     }
-    const head = jobs.length;
-    const tks = [];
-    for (const w of window.WALLETS) {
-      const m = marketOf(w.tk);
-      if (!m) continue;
-      tks.push(w.tk);
-      for (let i = 0; i < POT_CALLS.length; i++) jobs.push({ to: m, data: V3.SEL[POT_CALLS[i]] });
+    if (next == null) return;
+    if (next > Date.now() + 1000) window.S.nextSettle = next;
+    else if (!window.S.nextSettle || window.S.nextSettle < Date.now()) window.S.nextSettle = Date.now() + 20000;
+  }
+
+  function applyPot(tk, market, rows) {
+    const x = window.S && window.S.w[tk];
+    if (!x || !rows.every(V3.callOk)) return false;
+    const take = (k) => wordsOf(rows[k].result);
+    const tailPot = u256(take(0)[0]);
+    const fadePot = u256(take(1)[0]);
+    const tailSup = u256(take(2)[0]);
+    const fadeSup = u256(take(3)[0]);
+    const eRef = u256(take(4)[0]);
+    const status = Number(u256(take(5)[0] || "0"));
+    const last = u256(take(6)[0] || "0");
+    const epoch = u256(take(7)[0] || "0");
+    const pnl = i256(take(8)[0] || "0");
+    const applied = i256(take(9)[0] || "0");
+    const delta = i256(take(10)[0] || "0");
+    x.T = num6(tailPot);
+    x.F = num6(fadePot);
+    x.supT = num6(tailSup);
+    x.supF = num6(fadeSup);
+    if (eRef > 0n) x.eRef = num6(eRef);
+    x.chainStatus = STATUS[status] || "unknown";
+    x.chainPaused = pausedFlag;
+    x.lastR = rayNum(applied);
+    x.chainPots = true;
+    x.potStale = false;
+    view.status[tk] = x.chainStatus;
+    books[market.toLowerCase()] = {
+      last: last, epoch: epoch, tailPot: tailPot, fadePot: fadePot, tailSup: tailSup, fadeSup: fadeSup, fetchedAt: nowSec(),
+    };
+    const seen = x.chainSeen || 0;
+    const ep = Number(epoch);
+    if (last > 0n && ep > seen) {
+      x.settle.unshift({ t: Number(last) * 1000, pnl: num6(pnl), r: x.lastR, rc: x.lastR, d: num6(delta) });
+      if (x.settle.length > 100) x.settle.pop();
+      x.chainSeen = ep;
     }
-    if (!tks.length) {
-      potsLive = false;
-      if (jobs.length) {
-        try { applyPause(await batch(jobs)); } catch (e) { /* registry unread */ }
-      }
-      return false;
-    }
-    try {
-      const chainId = await rpc("eth_chainId", []);
-      if (Number.parseInt(chainId, 16) !== cfg.chainId) throw new Error("refusing chain id " + chainId);
-      const rows = await batch(jobs);
-      if (head) applyPause(rows.slice(0, head));
-      const per = POT_CALLS.length;
-      for (let i = 0; i < tks.length; i++) {
-        const b = head + i * per;
-        for (let k = 0; k < per; k++) {
-          const row = rows[b + k];
-          if (!row || row.error || row.result == null) throw new Error((row && row.error && row.error.message) || "pot read failed");
-        }
-        const take = (k) => wordsOf(rows[b + k].result);
-        const tk = tks[i];
-        const x = window.S.w[tk];
-        const tailPot = u256(take(0)[0]);
-        const fadePot = u256(take(1)[0]);
-        const tailSup = u256(take(2)[0]);
-        const fadeSup = u256(take(3)[0]);
-        const eRef = u256(take(4)[0]);
-        const status = Number(u256(take(5)[0] || "0"));
-        const last = u256(take(6)[0] || "0");
-        const epoch = u256(take(7)[0] || "0");
-        const pnl = i256(take(8)[0] || "0");
-        const applied = i256(take(9)[0] || "0");
-        const delta = i256(take(10)[0] || "0");
-        if (!x) continue;
-        x.T = num6(tailPot);
-        x.F = num6(fadePot);
-        x.supT = num6(tailSup);
-        x.supF = num6(fadeSup);
-        if (eRef > 0n) x.eRef = num6(eRef);
-        x.chainStatus = STATUS[status] || "unknown";
-        x.chainPaused = pausedFlag;
-        x.lastR = rayNum(applied);
-        view.status[tk] = x.chainStatus;
-        const market = marketOf(tk);
-        books[market.toLowerCase()] = { last: last, epoch: epoch, tailPot: tailPot, fadePot: fadePot, tailSup: tailSup, fadeSup: fadeSup };
-        const seen = x.chainSeen || 0;
-        const ep = Number(epoch);
-        if (last > 0n && ep > seen) {
-          x.settle.unshift({ t: Number(last) * 1000, pnl: num6(pnl), r: x.lastR, rc: x.lastR, d: num6(delta) });
-          if (x.settle.length > 100) x.settle.pop();
-          x.chainSeen = ep;
-        }
-      }
-      let next = null;
-      const keys = Object.keys(books);
-      for (let i = 0; i < keys.length; i++) {
-        const last = books[keys[i]].last;
-        if (!last || last === 0n) continue;
-        const dueAt = (Number(last) + cfg.epochSec) * 1000;
-        if (next == null || dueAt < next) next = dueAt;
-      }
-      if (next != null) {
-        if (next > Date.now() + 1000) window.S.nextSettle = next;
-        else if (!window.S.nextSettle || window.S.nextSettle < Date.now()) window.S.nextSettle = Date.now() + 20000;
-      }
+    if (window.WALLETS) {
       const counts = window.WALLETS.map((w) => (window.S.w[w.tk] && window.S.w[w.tk].chainSeen) || 0);
       window.S.settleN = counts.reduce((a, b) => a + b, 0);
-      potsLive = true;
-      potsFailed = false;
-      return true;
-    } catch (e) {
-      console.warn(e);
-      if (!potsLive) potsFailed = true;
-      return false;
     }
+    touchSettleClock();
+    potsLive = true;
+    potsFailed = false;
+    return true;
+  }
+
+  async function refreshPause() {
+    if (!cfg || !V3.isSet(cfg.registry)) return false;
+    if (pauseAt && nowSec() < pauseAt + (cfg.epochSec || 600)) return true;
+    const rows = await readChain([
+      { to: cfg.registry, data: V3.SEL.buysPaused },
+      { to: cfg.registry, data: V3.SEL.pauseSince },
+      { to: cfg.registry, data: V3.SEL.feeBps },
+    ]);
+    return applyPause(rows);
+  }
+
+  async function refreshViewedPot() {
+    if (!cfg || !window.S) return false;
+    const tk = viewedTicker();
+    const market = tk && marketOf(tk);
+    const x = tk && window.S.w[tk];
+    if (!market || !x) return false;
+    const book = books[market.toLowerCase()];
+    if (V3.potFresh(book, nowSec(), cfg.epochSec)) {
+      x.potStale = false;
+      return true;
+    }
+    const mine = ++potGen;
+    const rows = await readChain(POT_CALLS.map((name) => ({ to: market, data: V3.SEL[name] })));
+    if (mine !== potGen) return false;
+    if (applyPot(tk, market, rows)) return true;
+    if (x.chainPots) x.potStale = true;
+    else if (!potsLive) potsFailed = true;
+    return false;
   }
 
   function trackBasis(tk, side, raw) {
@@ -640,88 +716,214 @@
     return { has: raw > 0n, text: text, basis: basis[key] };
   }
 
+  function applyMoney(kind, row) {
+    const prev = known[kind] ? (kind === "wallet" ? walletBal : kind === "allowance" ? allowance : withdrawable) : null;
+    const read = V3.acceptRead(row, prev);
+    const textKey = kind === "wallet" ? "wallet" : kind;
+    const staleKey = kind === "wallet" ? "staleWallet" : kind === "allowance" ? "staleAllowance" : "staleWithdrawable";
+    const floor = kind === "wallet" ? floorWallet : kind === "withdrawable" ? floorWd : null;
+    const laggingLow = read.ok && floor != null && Date.now() < floorUntil && read.use < floor;
+    const laggingHigh = read.ok && kind === "wallet" && walletCeiling != null && Date.now() < floorUntil && read.use > walletCeiling;
+    if (read.ok && (laggingLow || laggingHigh)) {
+      view[staleKey] = true;
+      return;
+    }
+    if (read.ok) {
+      if (kind === "wallet") { walletBal = read.use; floorWallet = null; walletCeiling = null; }
+      else if (kind === "allowance") allowance = read.use;
+      else { withdrawable = read.use; floorWd = null; }
+      known[kind] = true;
+      view[staleKey] = false;
+      view[textKey] = V3.formatUnits(read.use);
+    } else {
+      view[staleKey] = true;
+      if (!known[kind]) view[textKey] = "—";
+    }
+  }
+
+  function rememberShares(tk, tail, fade) {
+    shares[tk + ":T"] = tail;
+    shares[tk + ":F"] = fade;
+    shareKnown[tk] = true;
+    const x = window.S && window.S.w[tk];
+    if (!x) return;
+    view.holds[tk] = {
+      T: trackBasis(tk, "T", tail),
+      F: trackBasis(tk, "F", fade),
+    };
+  }
+
+  function legsFrom(raw) {
+    const legs = [];
+    if (raw.buyTail > 0n) legs.push({ kind: "buy", side: "T", text: V3.formatUnits(raw.buyTail) });
+    if (raw.buyFade > 0n) legs.push({ kind: "buy", side: "F", text: V3.formatUnits(raw.buyFade) });
+    if (raw.sellTail > 0n) legs.push({ kind: "sell", side: "T", text: V3.formatUnits(raw.sellTail) });
+    if (raw.sellFade > 0n) legs.push({ kind: "sell", side: "F", text: V3.formatUnits(raw.sellFade) });
+    return legs;
+  }
+
+  function paintUserBooks() {
+    if (!window.U) return;
+    window.U.hold = {};
+    window.U.queue = [];
+    let committed = 0n;
+    const now = nowSec();
+    const tickers = {};
+    Object.keys(shareKnown).forEach((tk) => { tickers[tk] = true; });
+    Object.keys(pendingRaw).forEach((tk) => { tickers[tk] = true; });
+    Object.keys(tickers).forEach((tk) => {
+      if (shareKnown[tk]) {
+        const tail = shares[tk + ":T"] || 0n;
+        const fade = shares[tk + ":F"] || 0n;
+        if (tail > 0n && basis[tk + ":T"]) window.U.hold[tk + ":T"] = basis[tk + ":T"];
+        if (fade > 0n && basis[tk + ":F"]) window.U.hold[tk + ":F"] = basis[tk + ":F"];
+      }
+      const raw = pendingRaw[tk];
+      if (!raw) {
+        delete view.pending[tk];
+        return;
+      }
+      committed += raw.buyTail + raw.buyFade;
+      if (raw.buyTail > 0n) window.U.queue.push({ tk: tk, side: "T", kind: "buy", amt: num6(raw.buyTail), t: Date.now() });
+      if (raw.buyFade > 0n) window.U.queue.push({ tk: tk, side: "F", kind: "buy", amt: num6(raw.buyFade), t: Date.now() });
+      const market = marketOf(tk);
+      const book = (market && books[market.toLowerCase()]) || {};
+      const legs = legsFrom(raw);
+      const due = V3.isDue(book.last || 0n, now, cfg.epochSec);
+      const canCancel = legs.length > 0 && raw.epoch !== 0n && raw.epoch === (book.epoch || 0n) && !due;
+      if (legs.length) view.pending[tk] = { legs: legs, canCancel: canCancel };
+      else delete view.pending[tk];
+    });
+    view.committed = V3.formatUnits(committed);
+    if (known.withdrawable) {
+      window.U.pts = num6(withdrawable);
+      window.U.deposited = window.U.deposited || num6(withdrawable);
+    }
+    view.stale = !!(view.staleWallet || view.staleWithdrawable || view.staleAllowance || view.stalePending);
+  }
+
+  function notePending(tk, row) {
+    if (!V3.callOk(row)) return false;
+    const pw = wordsOf(row.result);
+    const raw = {
+      epoch: pw.length ? u256(pw[0]) : 0n,
+      buyTail: pw.length > 1 ? u256(pw[1]) : 0n,
+      buyFade: pw.length > 2 ? u256(pw[2]) : 0n,
+      sellTail: pw.length > 3 ? u256(pw[3]) : 0n,
+      sellFade: pw.length > 4 ? u256(pw[4]) : 0n,
+    };
+    if (raw.buyTail === 0n && raw.buyFade === 0n && raw.sellTail === 0n && raw.sellFade === 0n) delete pendingRaw[tk];
+    else pendingRaw[tk] = raw;
+    return true;
+  }
+
+  let userBusy = false;
+  let userAgain = false;
+  let userWait = null;
+
   async function refreshUser() {
-    if (!live() || !window.U) return;
+    if (!live() || !window.U || !window.WALLETS) return;
+    if (userBusy) { userAgain = true; return userWait; }
+    userBusy = true;
+    userWait = (async () => {
+      try {
+        do {
+          userAgain = false;
+          await loadUser();
+        } while (userAgain);
+      } finally {
+        userBusy = false;
+        userWait = null;
+      }
+    })();
+    return userWait;
+  }
+
+  async function loadUser() {
+    const mine = ++userGen;
     const me = account;
     const jobs = [
       { to: cfg.registry, data: V3.encodeAddress(V3.SEL.balanceOf, me) },
       { to: cfg.usdc, data: V3.encodeAddress(V3.SEL.balanceOf, me) },
       { to: cfg.usdc, data: V3.encodeAllowance(me, cfg.registry) },
     ];
+    const wantPause = !(pauseAt && nowSec() < pauseAt + (cfg.epochSec || 600));
+    const pauseBase = jobs.length;
+    if (wantPause && V3.isSet(cfg.registry)) {
+      jobs.push(
+        { to: cfg.registry, data: V3.SEL.buysPaused },
+        { to: cfg.registry, data: V3.SEL.pauseSince },
+        { to: cfg.registry, data: V3.SEL.feeBps },
+      );
+    }
+    const tk = viewedTicker();
+    const viewedMarket = tk && marketOf(tk);
+    const shareAt = viewedMarket ? jobs.length : -1;
+    if (viewedMarket) {
+      jobs.push(
+        { to: viewedMarket, data: V3.encodeShares(me, 0) },
+        { to: viewedMarket, data: V3.encodeShares(me, 1) },
+      );
+    }
     const markets = [];
     for (const w of window.WALLETS) {
       const m = marketOf(w.tk);
       if (!m) continue;
-      markets.push({ tk: w.tk, market: m, base: jobs.length });
-      jobs.push(
-        { to: m, data: V3.encodeShares(me, 0) },
-        { to: m, data: V3.encodeShares(me, 1) },
-        { to: m, data: V3.encodeAddress(V3.SEL.pending, me) },
-      );
+      markets.push({ tk: w.tk, at: jobs.length });
+      jobs.push({ to: m, data: V3.encodeAddress(V3.SEL.pending, me) });
     }
-    const rows = await batch(jobs);
-    const take0 = (i) => wordsOf(rows[i] && rows[i].result);
-    withdrawable = take0(0).length ? u256(take0(0)[0]) : 0n;
-    walletBal = take0(1).length ? u256(take0(1)[0]) : 0n;
-    allowance = take0(2).length ? u256(take0(2)[0]) : 0n;
-    view.withdrawable = V3.formatUnits(withdrawable);
-    view.wallet = V3.formatUnits(walletBal);
-    view.allowance = V3.formatUnits(allowance);
-    window.U.pts = num6(withdrawable);
-    window.U.hold = {};
-    window.U.queue = [];
-    view.holds = {};
-    view.pending = {};
-    let committed = 0n;
-    const now = await chainNow();
-    for (const row of markets) {
-      const tw = wordsOf(rows[row.base] && rows[row.base].result);
-      const fw = wordsOf(rows[row.base + 1] && rows[row.base + 1].result);
-      const pw = wordsOf(rows[row.base + 2] && rows[row.base + 2].result);
-      const tail = tw.length ? u256(tw[0]) : 0n;
-      const fade = fw.length ? u256(fw[0]) : 0n;
-      shares[row.tk + ":T"] = tail;
-      shares[row.tk + ":F"] = fade;
-      const book = books[row.market.toLowerCase()] || {};
-      view.holds[row.tk] = {
-        T: trackBasis(row.tk, "T", tail),
-        F: trackBasis(row.tk, "F", fade),
-      };
-      if (tail > 0n) window.U.hold[row.tk + ":T"] = basis[row.tk + ":T"];
-      if (fade > 0n) window.U.hold[row.tk + ":F"] = basis[row.tk + ":F"];
-      const epoch = pw.length ? u256(pw[0]) : 0n;
-      const buyTail = pw.length > 1 ? u256(pw[1]) : 0n;
-      const buyFade = pw.length > 2 ? u256(pw[2]) : 0n;
-      const sellTail = pw.length > 3 ? u256(pw[3]) : 0n;
-      const sellFade = pw.length > 4 ? u256(pw[4]) : 0n;
-      const legs = [];
-      if (buyTail > 0n) legs.push({ kind: "buy", side: "T", text: V3.formatUnits(buyTail) });
-      if (buyFade > 0n) legs.push({ kind: "buy", side: "F", text: V3.formatUnits(buyFade) });
-      if (sellTail > 0n) legs.push({ kind: "sell", side: "T", text: V3.formatUnits(sellTail) });
-      if (sellFade > 0n) legs.push({ kind: "sell", side: "F", text: V3.formatUnits(sellFade) });
-      committed += buyTail + buyFade;
-      if (buyTail > 0n) window.U.queue.push({ tk: row.tk, side: "T", kind: "buy", amt: num6(buyTail), t: Date.now() });
-      if (buyFade > 0n) window.U.queue.push({ tk: row.tk, side: "F", kind: "buy", amt: num6(buyFade), t: Date.now() });
-      const current = book.epoch || 0n;
-      const due = V3.isDue(book.last || 0n, now, cfg.epochSec);
-      const canCancel = legs.length > 0 && epoch !== 0n && epoch === current && !due;
-      if (legs.length) view.pending[row.tk] = { legs: legs, canCancel: canCancel };
+    let rows = await readChain(jobs);
+    if (mine !== userGen || account !== me) return;
+    if (V3.needsProviderFallback(rows, [0, 1, 2])) {
+      rows = await fillFromWallet(jobs, rows, [0, 1, 2]);
+      if (mine !== userGen || account !== me) return;
     }
-    view.committed = V3.formatUnits(committed);
-    window.U.deposited = window.U.deposited || num6(withdrawable);
+    applyMoney("withdrawable", rows[0]);
+    applyMoney("wallet", rows[1]);
+    applyMoney("allowance", rows[2]);
+    if (wantPause && V3.isSet(cfg.registry)) applyPause(rows.slice(pauseBase, pauseBase + 3));
+    if (shareAt >= 0) {
+      const tailRow = rows[shareAt];
+      const fadeRow = rows[shareAt + 1];
+      if (V3.callOk(tailRow) && V3.callOk(fadeRow)) {
+        rememberShares(tk, u256(wordsOf(tailRow.result)[0]), u256(wordsOf(fadeRow.result)[0]));
+      }
+    }
+    let pendingStale = false;
+    for (let i = 0; i < markets.length; i++) {
+      if (!notePending(markets[i].tk, rows[markets[i].at])) pendingStale = true;
+    }
+    view.stalePending = pendingStale;
+    paintUserBooks();
   }
 
   async function refresh(force) {
     if (!window.S || !window.WALLETS) return;
     try {
-      await refreshPots();
       if (live()) await refreshUser();
+      else await refreshPause();
+      await refreshViewedPot();
     } catch (e) {
       console.warn(e);
     }
     paint();
     if (force && typeof window.render === "function") window.render();
     else if (window.softRender) window.softRender();
+  }
+
+  function bump(kind, next) {
+    floorUntil = Date.now() + 20000;
+    if (kind === "wallet") {
+      if (!known.wallet || next > walletBal) { floorWallet = next; walletCeiling = null; }
+      else { floorWallet = null; walletCeiling = next; }
+      walletBal = next; known.wallet = true; view.wallet = V3.formatUnits(next); view.staleWallet = false;
+    } else if (kind === "allowance") {
+      allowance = next; known.allowance = true; view.allowance = V3.formatUnits(next); view.staleAllowance = false;
+    } else {
+      floorWd = !known.withdrawable || next > withdrawable ? next : null;
+      withdrawable = next; known.withdrawable = true; view.withdrawable = V3.formatUnits(next); view.staleWithdrawable = false;
+    }
+    view.stale = !!(view.staleWallet || view.staleWithdrawable || view.staleAllowance || view.stalePending);
   }
 
   async function send(to, data) {
@@ -866,6 +1068,7 @@
     if (allowance >= raw) return toast("USDC is already approved for this amount. You can deposit.");
     return withBusy(async () => {
       await send(cfg.usdc, V3.encodeAddrUint(V3.SEL.approve, cfg.registry, raw));
+      bump("allowance", raw > allowance ? raw : allowance);
       toast("Approved " + V3.formatUnits(raw) + " USDC for the registry. Deposit is the next step.");
     });
   }
@@ -878,6 +1081,8 @@
     if (raw > walletBal) return toast("Not enough USDC in the wallet.");
     return withBusy(async () => {
       await send(cfg.registry, V3.encodeUint(V3.SEL.deposit, raw));
+      bump("withdrawable", (known.withdrawable ? withdrawable : 0n) + raw);
+      if (known.wallet) bump("wallet", walletBal > raw ? walletBal - raw : 0n);
       toast("Deposited " + V3.formatUnits(raw) + " USDC. It is now withdrawable, and you can bet it.");
     });
   }
@@ -890,12 +1095,15 @@
     return withBusy(async () => {
       if (allowance < raw) {
         await send(cfg.usdc, V3.encodeAddrUint(V3.SEL.approve, cfg.registry, raw));
+        bump("allowance", raw);
         toast("Approved " + V3.formatUnits(raw) + " USDC. Depositing it next.");
         await refresh(true);
       }
       if (allowance < raw) throw new Error("Approval did not cover this deposit yet. Press Deposit to finish.");
       if (raw > walletBal) throw new Error("Not enough USDC in the wallet.");
       await send(cfg.registry, V3.encodeUint(V3.SEL.deposit, raw));
+      bump("withdrawable", (known.withdrawable ? withdrawable : 0n) + raw);
+      if (known.wallet) bump("wallet", walletBal > raw ? walletBal - raw : 0n);
       toast("Deposited " + V3.formatUnits(raw) + " USDC. It is now withdrawable, and you can bet it.");
     });
   }
@@ -907,6 +1115,8 @@
     if (raw > withdrawable) return toast("That is more than your withdrawable balance.");
     return withBusy(async () => {
       await send(cfg.registry, V3.encodeUint(V3.SEL.withdraw, raw));
+      bump("withdrawable", withdrawable > raw ? withdrawable - raw : 0n);
+      if (known.wallet) bump("wallet", walletBal + raw);
       toast("Withdrew " + V3.formatUnits(raw) + " USDC to your wallet.");
     });
   }
@@ -918,6 +1128,7 @@
     const amt = V3.faucetRaw(cfg.faucetAmount);
     return withBusy(async () => {
       await send(cfg.usdc, V3.encodeUint(V3.SEL.faucet, amt));
+      bump("wallet", (known.wallet ? walletBal : 0n) + amt);
       toast("Sent " + V3.formatUnits(amt) + " tUSDC to your wallet. At most 1,000 per call. It is not mainnet USDC.");
     });
   }

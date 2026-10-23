@@ -187,3 +187,84 @@ test("epoch due rule matches the 10 minute window", () => {
   assert.equal(V3.isDue(1000, 1599, 600), false);
   assert.equal(V3.isDue(1000, 1600, 600), true);
 });
+
+function wordOf(n) {
+  return "0x" + n.toString(16).padStart(64, "0");
+}
+
+test("a failed read keeps the last good balance and a success of zero replaces it", () => {
+  const kept = V3.acceptRead({ error: { message: "rate limit" } }, 2000_000000n);
+  assert.equal(kept.ok, false);
+  assert.equal(kept.stale, true);
+  assert.equal(kept.use, 2000_000000n);
+  assert.equal(V3.acceptRead({ result: "0x" }, 2000_000000n).use, 2000_000000n);
+  assert.equal(V3.acceptRead(undefined, 2000_000000n).use, 2000_000000n);
+  assert.equal(V3.acceptRead({ result: "0x" + "0".repeat(63) }, 9n).ok, false);
+
+  const zero = V3.acceptRead({ result: wordOf(0n) }, 2000_000000n);
+  assert.equal(zero.ok, true);
+  assert.equal(zero.stale, false);
+  assert.equal(zero.use, 0n);
+
+  const first = V3.acceptRead({ error: { message: "missing" } }, null);
+  assert.equal(first.use, null);
+  assert.equal(first.stale, true);
+  assert.equal(V3.acceptRead({ result: wordOf(1000_000000n) }, null).use, 1000_000000n);
+});
+
+test("pot cache lasts for the epoch and a zero settle does not refetch immediately", () => {
+  assert.equal(V3.potFresh({ last: 1000n, fetchedAt: 1000 }, 1500, 600), true);
+  assert.equal(V3.potFresh({ last: 1000n, fetchedAt: 1000 }, 1600, 600), false);
+  assert.equal(V3.potFresh({ last: 0n, fetchedAt: 1000 }, 1599, 600), true);
+  assert.equal(V3.potFresh({ last: 0n, fetchedAt: 1000 }, 1600, 600), false);
+  assert.equal(V3.potFresh(null, 1000, 600), false);
+  assert.equal(V3.potFresh({}, 1000, 600), false);
+});
+
+test("reads retry a 429 in batches of four and do not invent a zero", async () => {
+  assert.deepEqual([0, 1, 2, 3].map(V3.retryWaitMs), [200, 600, 1400, 4000]);
+  assert.equal(V3.retryWaitMs(9), 4000);
+  assert.equal(V3.isRateLimit(429, ""), true);
+  assert.equal(V3.isRateLimit(200, "Too Many Requests"), true);
+
+  const waits = [];
+  const sizes = [];
+  let n = 0;
+  const rows = await V3.readCalls({
+    calls: [0, 1, 2, 3, 4].map((i) => ({ to: "0x" + String(i), data: "0x" })),
+    retries: 3,
+    batchSize: 4,
+    sleep: (ms) => { waits.push(ms); return Promise.resolve(); },
+    send: (payload) => {
+      sizes.push(payload.length);
+      n += 1;
+      if (n === 1) return Promise.resolve({ status: 429, body: { error: { message: "rate limit" } } });
+      if (n === 2) return Promise.resolve({ status: 200, body: { error: { message: "overloaded" } } });
+      return Promise.resolve({
+        status: 200,
+        body: payload.map((p) => ({ id: p.id, result: sizes.length === 3 && p.id === 0 ? wordOf(2000_000000n) : wordOf(0n) })),
+      });
+    },
+  });
+
+  assert.deepEqual(sizes, [4, 4, 4, 1]);
+  assert.deepEqual(waits, [200, 600]);
+  assert.equal(rows.length, 5);
+  assert.equal(V3.acceptRead(rows[0], null).use, 2000_000000n);
+  assert.equal(V3.acceptRead(rows[1], 7n).use, 0n);
+  assert.equal(V3.acceptRead(rows[4], null).use, 0n);
+  assert.equal(V3.needsProviderFallback(rows, [0, 1, 2]), false);
+
+  const hung = await V3.readCalls({
+    calls: [{ to: "0xabc", data: "0x70a08231" }],
+    retries: 1,
+    batchSize: 4,
+    sleep: () => Promise.resolve(),
+    send: () => Promise.reject(new Error("429 Too Many Requests")),
+  });
+  const failed = V3.acceptRead(hung[0], 2000_000000n);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.use, 2000_000000n);
+  assert.equal(V3.acceptRead(hung[0], null).use, null);
+  assert.equal(V3.needsProviderFallback(hung, [0]), true);
+});
