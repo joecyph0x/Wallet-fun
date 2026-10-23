@@ -38,6 +38,7 @@
     exitAtLastNav: "0x7b7ef60c",
     sharesOf: "0x233f6928",
     pending: "0x5eebea20",
+    navOf: "0xcfa7ef16",
     tailPot: "0x2b2dc7c8",
     fadePot: "0xe52d1e6d",
     tailSupply: "0xb5f88e82",
@@ -500,6 +501,112 @@
     return Number.isFinite(fetched) && fetched > 0 && now < fetched + windowSec;
   }
 
+  const TOPICS = {
+    feePaid: "0x3e05a3655ece722e962ac4432878f11ac6ff5085565828cce3626741e31dcedb",
+    exposure: "0x5a4611234fe44db3d8593996510c88961be5f69a93f28d15d3a80ab5e2135c97",
+    emergencyExit: "0x4eeebe25f5306c1a696a52666647c7a52dc5a4c097ca05ab86d10619297d5c07",
+  };
+
+  /** Inclusive ranges, each at most 1000 blocks. The public RPC rejects a wider getLogs span. */
+  function logRanges(fromBlock, toBlock, size) {
+    const span = Math.max(1, Math.min(1000, size == null ? 1000 : Number(size) || 1000));
+    const from = Number(fromBlock);
+    const to = Number(toBlock);
+    const out = [];
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return out;
+    for (let start = Math.floor(from); start <= to; start += span) {
+      out.push([start, Math.min(Math.floor(to), start + span - 1)]);
+    }
+    return out;
+  }
+
+  function hexWords(data) {
+    const h = String(data || "").replace(/^0x/i, "");
+    const out = [];
+    for (let i = 0; i + 64 <= h.length; i += 64) out.push(BigInt("0x" + h.slice(i, i + 64)));
+    return out;
+  }
+
+  function sideKey(n) {
+    const v = Number(n);
+    if (v === 0) return "T";
+    if (v === 1) return "F";
+    return null;
+  }
+
+  function lotFrom(prev) {
+    return {
+      cost: prev && prev.cost != null ? BigInt(prev.cost) : 0n,
+      shares: prev && prev.shares != null ? BigInt(prev.shares) : 0n,
+      partial: !!(prev && prev.partial),
+      buy: null,
+      sell: null,
+    };
+  }
+
+  /**
+   * Average-cost basis from FeePaid + Exposure (+ emergency exit), in log order.
+   * A share change without its fee is partial, so the UI can show value only.
+   */
+  function foldBasis(logs, seed) {
+    const books = {};
+    const lot = (market, side) => {
+      const m = String(market || "").toLowerCase();
+      if (!books[m]) {
+        const prev = seed && (seed[m] || seed[String(market || "")]);
+        books[m] = { T: lotFrom(prev && prev.T), F: lotFrom(prev && prev.F) };
+      }
+      return books[m][side];
+    };
+    if (seed) {
+      Object.keys(seed).forEach((m) => lot(m, "T"));
+    }
+    const sorted = (logs || []).slice().sort((a, b) => (Number(a.block) - Number(b.block)) || (Number(a.index) - Number(b.index)));
+    for (let i = 0; i < sorted.length; i++) {
+      const log = sorted[i];
+      const topic = String(log.topic || "").toLowerCase();
+      const w = hexWords(log.data);
+      const side = sideKey(w[0]);
+      if (!side || !log.market) continue;
+      const b = lot(log.market, side);
+      if (topic === TOPICS.feePaid) {
+        if (w[1] !== 0n) b.buy = w[3] || 0n;
+        else b.sell = w[3] || 0n;
+      } else if (topic === TOPICS.exposure) {
+        const after = w[1] || 0n;
+        if (after > b.shares) {
+          if (b.buy == null) b.partial = true;
+          else b.cost += b.buy;
+        } else if (after < b.shares) {
+          if (b.sell == null) b.partial = true;
+          b.cost = b.shares === 0n ? 0n : (b.cost * after) / b.shares;
+        }
+        b.shares = after;
+        b.buy = null;
+        b.sell = null;
+      } else if (topic === TOPICS.emergencyExit) {
+        const sold = w[1] || 0n;
+        const left = b.shares > sold ? b.shares - sold : 0n;
+        b.cost = b.shares === 0n ? 0n : (b.cost * left) / b.shares;
+        b.shares = left;
+      }
+    }
+    const out = {};
+    Object.keys(books).forEach((m) => {
+      out[m] = {
+        T: { cost: books[m].T.cost, shares: books[m].T.shares, partial: books[m].T.partial },
+        F: { cost: books[m].F.cost, shares: books[m].F.shares, partial: books[m].F.partial },
+      };
+    });
+    return out;
+  }
+
+  /** Share value in 6-decimal USDC. navOf is pot * 1e6 / supply, so value = shares * nav / 1e6. */
+  function positionValue(shares, nav) {
+    if (shares == null || nav == null) return null;
+    return BigInt(shares) * BigInt(nav) / UNIT;
+  }
+
   function needsProviderFallback(rows, indexes) {
     const list = indexes || [0, 1, 2];
     for (let i = 0; i < list.length; i++) {
@@ -554,5 +661,9 @@
     readCalls: readCalls,
     potFresh: potFresh,
     needsProviderFallback: needsProviderFallback,
+    TOPICS: TOPICS,
+    logRanges: logRanges,
+    foldBasis: foldBasis,
+    positionValue: positionValue,
   };
 });

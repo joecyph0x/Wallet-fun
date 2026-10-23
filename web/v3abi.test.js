@@ -268,3 +268,53 @@ test("reads retry a 429 in batches of four and do not invent a zero", async () =
   assert.equal(V3.acceptRead(hung[0], null).use, null);
   assert.equal(V3.needsProviderFallback(hung, [0]), true);
 });
+
+function logData() {
+  const words = Array.prototype.slice.call(arguments);
+  return "0x" + words.map((n) => BigInt(n).toString(16).padStart(64, "0")).join("");
+}
+
+test("position value uses navOf and log windows stay within 1000 blocks", () => {
+  assert.equal(V3.SEL.navOf, "0xcfa7ef16");
+  assert.equal(V3.positionValue(50_000000n, 2_000000n), 100_000000n);
+  assert.equal(V3.positionValue(0n, 2_000000n), 0n);
+  assert.equal(V3.positionValue(null, 1n), null);
+  const ranges = V3.logRanges(10, 2500, 5000);
+  assert.deepEqual(ranges, [[10, 1009], [1010, 2009], [2010, 2500]]);
+  ranges.forEach((pair) => assert.ok(pair[1] - pair[0] + 1 <= 1000));
+  assert.deepEqual(V3.logRanges(5, 4, 1000), []);
+});
+
+test("cost basis follows buy and sell fills and ignores a partial history", () => {
+  const market = "0xAaBbCcDdEeFf00112233445566778899aAbBcCdD";
+  const buy = V3.foldBasis([
+    { topic: V3.TOPICS.feePaid, market: market, block: 2, index: 0, data: logData(1, 1, 0, 100_000000n, 1, 0) },
+    { topic: V3.TOPICS.exposure, market: market, block: 2, index: 1, data: logData(1, 50_000000n, 1, 1) },
+  ]);
+  const lot = buy[market.toLowerCase()].F;
+  assert.equal(lot.cost, 100_000000n);
+  assert.equal(lot.shares, 50_000000n);
+  assert.equal(lot.partial, false);
+  assert.equal(V3.positionValue(lot.shares, 2_000000n) - lot.cost, 0n);
+
+  const sold = V3.foldBasis([
+    { topic: V3.TOPICS.feePaid, market: market, block: 3, index: 0, data: logData(1, 0, 0, 60_000000n, 2, 1) },
+    { topic: V3.TOPICS.exposure, market: market, block: 3, index: 1, data: logData(1, 25_000000n, 2, 1) },
+  ], buy);
+  const left = sold[market.toLowerCase()].F;
+  assert.equal(left.shares, 25_000000n);
+  assert.equal(left.cost, 50_000000n);
+  assert.equal(left.partial, false);
+
+  const gap = V3.foldBasis([
+    { topic: V3.TOPICS.exposure, market: market, block: 4, index: 0, data: logData(0, 10_000000n, 3, 1) },
+  ]);
+  assert.equal(gap[market.toLowerCase()].T.partial, true);
+
+  const kept = V3.foldBasis([], {
+    [market.toLowerCase()]: { T: { cost: "0", shares: "0", partial: false }, F: { cost: "100000000", shares: "50000000", partial: false } },
+  });
+  assert.equal(kept[market.toLowerCase()].F.cost, 100000000n);
+  assert.equal(kept[market.toLowerCase()].F.shares, 50000000n);
+  assert.equal(kept[market.toLowerCase()].F.partial, false);
+});
