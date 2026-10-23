@@ -22,6 +22,7 @@
   const known = { withdrawable: false, wallet: false, allowance: false };
   let floorWd = null;
   let floorWallet = null;
+  let walletCeiling = null;
   let floorUntil = 0;
   let pausedFlag = false;
   let pauseSinceSec = 0;
@@ -516,6 +517,8 @@
     window.addEventListener("hashchange", () => {
       refresh(false).catch((e) => console.warn(e));
     });
+    // boot() may have refreshed before this config finished loading.
+    refresh(false).catch((e) => console.warn(e));
   }
 
   function attach() {
@@ -555,6 +558,7 @@
     known.allowance = false;
     floorWd = null;
     floorWallet = null;
+    walletCeiling = null;
     floorUntil = 0;
     Object.keys(shares).forEach((k) => { delete shares[k]; delete shareKnown[k]; });
     Object.keys(pendingRaw).forEach((k) => delete pendingRaw[k]);
@@ -718,12 +722,14 @@
     const textKey = kind === "wallet" ? "wallet" : kind;
     const staleKey = kind === "wallet" ? "staleWallet" : kind === "allowance" ? "staleAllowance" : "staleWithdrawable";
     const floor = kind === "wallet" ? floorWallet : kind === "withdrawable" ? floorWd : null;
-    if (read.ok && floor != null && Date.now() < floorUntil && read.use < floor) {
+    const laggingLow = read.ok && floor != null && Date.now() < floorUntil && read.use < floor;
+    const laggingHigh = read.ok && kind === "wallet" && walletCeiling != null && Date.now() < floorUntil && read.use > walletCeiling;
+    if (read.ok && (laggingLow || laggingHigh)) {
       view[staleKey] = true;
       return;
     }
     if (read.ok) {
-      if (kind === "wallet") { walletBal = read.use; floorWallet = null; }
+      if (kind === "wallet") { walletBal = read.use; floorWallet = null; walletCeiling = null; }
       else if (kind === "allowance") allowance = read.use;
       else { withdrawable = read.use; floorWd = null; }
       known[kind] = true;
@@ -908,7 +914,8 @@
   function bump(kind, next) {
     floorUntil = Date.now() + 20000;
     if (kind === "wallet") {
-      floorWallet = !known.wallet || next > walletBal ? next : null;
+      if (!known.wallet || next > walletBal) { floorWallet = next; walletCeiling = null; }
+      else { floorWallet = null; walletCeiling = next; }
       walletBal = next; known.wallet = true; view.wallet = V3.formatUnits(next); view.staleWallet = false;
     } else if (kind === "allowance") {
       allowance = next; known.allowance = true; view.allowance = V3.formatUnits(next); view.staleAllowance = false;
