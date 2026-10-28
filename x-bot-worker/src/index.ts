@@ -16,7 +16,7 @@ import { authorizationHeader, randomNonce, TWEET_URL } from "./oauth.js";
 import { applyBackoff, backoffSeconds, emptyRate, formatMilli, recordPost, usdToMilli, type RateState } from "./rate.js";
 import { decideRun } from "./run.js";
 import { PLAIN_MILLI, URL_MILLI, type LinkMode } from "./templates.js";
-import { mergeBooks, parseDexes, queriesFor, vaultChildren } from "./sources.js";
+import { accountValueFromClearinghouse, mergeBooks, parseDexes, queriesFor, vaultChildren } from "./sources.js";
 import { WHALES } from "./whales.js";
 
 export interface Env {
@@ -93,6 +93,7 @@ async function run(env: Env): Promise<void> {
       ticker: p.whale.ticker,
       positions: p.positions,
       realised: realised[p.whale.ticker] ?? null,
+      accountUsd: p.accountUsd,
     }));
 
   const plan = decideRun({
@@ -121,7 +122,7 @@ async function run(env: Env): Promise<void> {
     if (sent.ok) {
       snapsOut = plan.post.snap ? { ...snapsOut, [plan.post.ticker]: plan.post.snap } : snapsOut;
       writeSnap = writeSnap || !!plan.post.snap;
-      rate = recordPost(rate, now, plan.post.costMilli, plan.post.recap);
+      rate = recordPost(rate, now, plan.post.costMilli, plan.post.recap, plan.post.recap ? "" : plan.post.ticker);
       posts = [...posts, {
         at: now,
         ticker: plan.post.ticker,
@@ -299,7 +300,12 @@ function notionalOverrides(raw: string | undefined): Record<string, number> {
   }
 }
 
-type Book = { whale: (typeof WHALES)[number]; accounts: string[]; positions: Pos[] | null };
+type Book = {
+  whale: (typeof WHALES)[number];
+  accounts: string[];
+  positions: Pos[] | null;
+  accountUsd?: number;
+};
 
 /**
  * One book per whale: the default dex plus each HIP-3 dex in `dexes`.
@@ -316,14 +322,26 @@ async function loadBooks(infoUrl: string, dexes: readonly string[]): Promise<Boo
   return Promise.all(
     WHALES.map(async (w, i) => {
       const qs = queriesFor(accounts[i]!, w.vault ? [] : dexes);
-      const books = await Promise.all(
-        qs.map(async (q) =>
-          positionsFromClearinghouse(
-            await info(infoUrl, q.dex ? { type: "clearinghouseState", user: q.user, dex: q.dex } : { type: "clearinghouseState", user: q.user }),
-          ),
+      const raws = await Promise.all(
+        qs.map((q) =>
+          info(infoUrl, q.dex ? { type: "clearinghouseState", user: q.user, dex: q.dex } : { type: "clearinghouseState", user: q.user }),
         ),
       );
-      return { whale: w, accounts: accounts[i]!, positions: mergeBooks(books) };
+      let accountUsd = 0;
+      let sawAccount = false;
+      for (const raw of raws) {
+        const value = accountValueFromClearinghouse(raw);
+        if (value != null) {
+          accountUsd += value;
+          sawAccount = true;
+        }
+      }
+      return {
+        whale: w,
+        accounts: accounts[i]!,
+        positions: mergeBooks(raws.map((raw) => positionsFromClearinghouse(raw))),
+        accountUsd: sawAccount ? accountUsd : undefined,
+      };
     }),
   );
 }
@@ -496,12 +514,23 @@ function loadBot(raw: string | null, now: number): BotFile {
         lastPostAt: typeof rate.lastPostAt === "number" ? rate.lastPostAt : 0,
         backoffUntil: typeof rate.backoffUntil === "number" ? rate.backoffUntil : 0,
         recapDay: typeof rate.recapDay === "string" ? rate.recapDay : "",
+        byWhale: whaleCounts(rate.byWhale),
       },
       posts,
     };
   } catch {
     return { v: 1, rate: emptyRate(now), posts: [] };
   }
+}
+
+function whaleCounts(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(val);
+    if (Number.isFinite(n) && n >= 0) out[k.toUpperCase()] = Math.floor(n);
+  }
+  return out;
 }
 
 function isPost(v: unknown): v is StoredPost {

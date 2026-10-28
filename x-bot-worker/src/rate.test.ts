@@ -90,6 +90,24 @@ test("the biggest event wins and a tie breaks on ticker", () => {
   assert.equal(tie?.ticker, "BOBBY");
 });
 
+test("a whale stops at two posts and the next most notable whale is chosen", () => {
+  const groups = [
+    { ticker: "FUMBLER", events: [{ score: 9_000_000 }] },
+    { ticker: "MACHI", events: [{ score: 2_000_000 }] },
+    { ticker: "HLP", events: [{ score: 500 }] },
+  ];
+  assert.equal(chooseWhale(groups, { FUMBLER: 2 })?.ticker, "MACHI");
+  assert.equal(chooseWhale(groups, { FUMBLER: 2, MACHI: 2, HLP: 2 }), null);
+  let state = emptyRate(noon);
+  state = recordPost(state, noon, 15, false, "FUMBLER");
+  state = recordPost(state, noon + 1_200_000, 15, false, "FUMBLER");
+  assert.equal(state.byWhale.FUMBLER, 2);
+  const nextDay = Date.UTC(2026, 9, 23, 12, 0, 0);
+  const rolled = recordPost(state, nextDay, 15, false, "FUMBLER");
+  assert.equal(rolled.byWhale.FUMBLER, 1);
+  assert.equal(rolled.count, 1);
+});
+
 test("the daily recap stays off unless it is enabled and after 22:00 UTC", () => {
   const state = emptyRate(noon);
   const late = Date.UTC(2026, 9, 22, 22, 15, 0);

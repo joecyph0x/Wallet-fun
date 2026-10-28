@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   commitSnap,
+  dedupeEvents,
   detectEvents,
+  dustMoves,
+  isDust,
   positionsFromClearinghouse,
   snapOf,
   sumClosedPnl,
   type Pos,
   type Snap,
   type Thresholds,
+  type WhaleEvent,
 } from "./events.js";
 import { DEMO_WHALE, WHALES } from "./whales.js";
 
@@ -167,4 +171,28 @@ test("clearinghouse rows and close fills parse without the rest of the payload",
   assert.equal(sumClosedPnl(rows, "ETH", 1_000), -1_400_000);
   assert.equal(sumClosedPnl(rows, "SOL", 1_000), null);
   assert.equal(sumClosedPnl({ not: "array" }, "ETH", 1_000), null);
+});
+
+test("dust legs are ignored and identical events collapse", () => {
+  assert.equal(isDust(40_000), true);
+  assert.equal(isDust(80_000, 20_000_000), true);
+  assert.equal(isDust(2_000_000, 20_000_000), false);
+  const prev = book([
+    pos("DUST", 1, { notional: 10_000 }),
+    pos("ETH", 1, { notional: 2_000_000 }),
+  ]);
+  const closed = detectEvents("HLP", prev, [pos("ETH", 1, { notional: 2_000_000 })], { DUST: 5_000_000 }, th);
+  assert.equal(closed.length, 0);
+  const tiny = [
+    pos("A", 1, { notional: 1_000 }),
+    pos("B", 1, { notional: 2_000 }),
+    pos("C", 1, { notional: 3_000 }),
+  ];
+  assert.equal(dustMoves([], tiny), 3);
+  const dup: WhaleEvent = {
+    kind: "open", ticker: "HLP", coin: "ETH", side: "long", notional: 2, entry: 1, pnl: 0, addFrac: 0, score: 2,
+  };
+  const smaller = { ...dup, score: 1 };
+  assert.equal(dedupeEvents([dup, smaller, dup]).length, 1);
+  assert.equal(dedupeEvents([dup, smaller])[0]?.score, 2);
 });

@@ -9,6 +9,9 @@ import type { Side, WhaleEvent } from "./events.js";
 import { topEvents } from "./rate.js";
 import { displayCoin } from "./sources.js";
 
+/** Shown on some posts. A hint, not a promise, and not an airdrop. */
+export const SEASON_LINE = "Season 0 coming soon. Points might matter later";
+
 export type LinkMode = "none" | "daily" | "all";
 
 export type Odds = { tail: number; fade: number };
@@ -59,10 +62,24 @@ export function formatPays(mult: number): string {
   return s + "x";
 }
 
+/**
+ * Kept for tests of the old payout math. Posts do not use it.
+ * A line like "TAIL pays 2x" read as a guaranteed payout.
+ */
 export function oddsLine(odds: Odds | null | undefined): string {
   if (!odds || !(odds.tail > 0) || !(odds.fade > 0)) return "";
   const total = odds.tail + odds.fade;
   return `TAIL pays ${formatPays(total / odds.tail)} · FADE pays ${formatPays(total / odds.fade)}`;
+}
+
+/** Coin text for a post. `xyz:TSLA` becomes `$TSLA`. `@` and domains are stripped. */
+export function postCoin(coin: string): string {
+  const shown = displayCoin(coin);
+  if (shown.startsWith("$")) {
+    const name = safeLabel(shown.slice(1)).replace(/\s+/g, "");
+    return name ? "$" + name : "a market";
+  }
+  return safeLabel(shown) || "a market";
 }
 
 /** Drop @ and dots so a coin name cannot become a mention or an auto-linked domain. */
@@ -104,13 +121,11 @@ export function compose(input: ComposeInput): string {
   const ticker = safeLabel(input.ticker).replace(/\s+/g, "") || "WHALE";
   const seed = input.variant ?? fnv(seedOf(input));
   const allowUrl = input.linkMode === "all" || (input.linkMode === "daily" && !!input.recap);
-  const odds = oddsLine(input.odds);
   const body = input.recap ? recapBody(input, ticker) : eventBody(input.events ?? [], seed);
-  const foot = footer(seed, allowUrl, input.recap ? "" : ticker);
-  const line = odds && !input.recap ? `${body} ${odds}` : body;
-  let text = assemble(line, foot, allowUrl);
+  const foot = footer(seed, allowUrl);
+  let text = assemble(body, foot, allowUrl);
   if (!allowUrl && containsUrlOrDomain(text)) {
-    text = `🐋 ${ticker} moved.\nSeason 0, points only`;
+    text = `🐋 ${ticker} moved.\nSeason 0 coming soon`;
   }
   return text;
 }
@@ -134,7 +149,10 @@ function eventBody(events: readonly WhaleEvent[], seed: number): string {
 
 function single(e: WhaleEvent, n: number): string {
   const ticker = safeLabel(e.ticker).replace(/\s+/g, "") || "WHALE";
-  const coin = safeLabel(displayCoin(e.coin)) || "a market";
+  if (e.summary && e.summary > 0) {
+    return `🐋 ${ticker} shuffled ${e.summary} smaller positions. None big enough to name.`;
+  }
+  const coin = postCoin(e.coin);
   const usd = formatUsd(e.notional);
   const at = e.entry > 0 ? ` at ${formatPx(e.entry)}` : "";
   const pct = Math.round(e.addFrac * 100).toString();
@@ -183,7 +201,8 @@ function single(e: WhaleEvent, n: number): string {
 }
 
 function short(e: WhaleEvent): string {
-  const coin = safeLabel(displayCoin(e.coin)) || "a market";
+  if (e.summary && e.summary > 0) return `shuffled ${e.summary} smaller positions`;
+  const coin = postCoin(e.coin);
   if (e.kind === "open") return `opened a ${formatUsd(e.notional)} ${coin} ${e.side}`;
   if (e.kind === "close") return `closed ${coin} ${e.side} ${formatUsd(e.pnl, true)}`;
   if (e.kind === "flip") return `flipped ${coin} ${e.prevSide ?? "flat"} → ${e.side}`;
@@ -196,14 +215,14 @@ function recapBody(input: ComposeInput, ticker: string): string {
   const b = input.biggest;
   if (!b || !(b.notional > 0)) return `📒 Daybook. The board is flat. ${n} whales tracked.`;
   const who = safeLabel(b.ticker).replace(/\s+/g, "") || ticker;
-  const coin = safeLabel(displayCoin(b.coin)) || "a market";
+  const coin = postCoin(b.coin);
   return `📒 Daybook. ${who} still on a ${formatUsd(b.notional)} ${coin} ${b.side}. ${n} whales tracked.`;
 }
 
-function footer(seed: number, allowUrl: boolean, ticker: string): string {
-  const season = "Season 0, points only";
+function footer(seed: number, allowUrl: boolean): string {
+  const season = SEASON_LINE;
   if (allowUrl) {
-    const url = ticker ? `https://${HOST}/#/w/${tickerPath(ticker)}` : `https://${HOST}`;
+    const url = `https://${HOST}`;
     return seed % 4 === 2 ? `${url}\n${season}` : url;
   }
   const slot = seed % 4;
@@ -211,11 +230,6 @@ function footer(seed: number, allowUrl: boolean, ticker: string): string {
   if (slot === 1) return "whalewallet dot fun";
   if (slot === 2) return season;
   return "";
-}
-
-function tickerPath(ticker: string): string {
-  const clean = ticker.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  return clean || "HOME";
 }
 
 function assemble(body: string, foot: string, keepFoot: boolean): string {

@@ -3,7 +3,17 @@
  * then writes KV only when a snapshot changed or a post was recorded.
  */
 
-import { commitSnap, detectEvents, snapOf, type Pos, type Snap, type WhaleEvent } from "./events.js";
+import {
+  commitSnap,
+  detectEvents,
+  dustMoves,
+  FRESH_SNAP_MS,
+  snapOf,
+  summaryEvent,
+  type Pos,
+  type Snap,
+  type WhaleEvent,
+} from "./events.js";
 import { canPost, chooseWhale, recapDue, type Limits, type RateState } from "./rate.js";
 import { compose, costMilli, postTypeOf, type LinkMode, type Odds } from "./templates.js";
 
@@ -12,6 +22,8 @@ export type Book = {
   /** Null when the info API failed. The stored snapshot is left alone. */
   positions: Pos[] | null;
   realised: Readonly<Record<string, number>> | null;
+  /** Account value in USD. Used to drop legs under 1% of the book. */
+  accountUsd?: number;
 };
 
 export type RunInput = {
@@ -57,11 +69,20 @@ export function decideRun(input: RunInput): RunPlan {
     if (!book.positions) continue;
     const next = snapOf(book.positions, input.now);
     const prev = input.snaps[book.ticker];
-    const events = detectEvents(book.ticker, prev, book.positions, book.realised, {
+    if (prev && input.now - prev.at > FRESH_SNAP_MS) {
+      snaps[book.ticker] = next;
+      writeSnap = true;
+      continue;
+    }
+    const thresholds = {
       notionalUsd: input.notionalByTicker[book.ticker] ?? input.notionalUsd,
       pnlUsd: input.pnlUsd,
       addPct: input.addPct,
-    });
+      accountUsd: book.accountUsd,
+    };
+    let events = detectEvents(book.ticker, prev, book.positions, book.realised, thresholds);
+    const dust = prev ? dustMoves(prev.positions, book.positions, book.accountUsd) : 0;
+    if (!events.length && dust >= 3) events = [summaryEvent(book.ticker, dust)];
     if (events.length > 0) {
       groups.push({ ticker: book.ticker, events, next });
       continue;
@@ -74,7 +95,7 @@ export function decideRun(input: RunInput): RunPlan {
   }
 
   const limits = input.limits;
-  const choice = chooseWhale(groups);
+  const choice = chooseWhale(groups, input.rate.byWhale ?? {});
   if (choice) {
     const group = groups.find((g) => g.ticker === choice.ticker);
     if (!group) return { snaps, writeSnap, post: null, skip: "" };

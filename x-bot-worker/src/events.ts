@@ -20,11 +20,23 @@ export type Snap = {
   positions: Pos[];
 };
 
+/** Ignore a leg under this notional. HLP's dust otherwise fills the draft. */
+export const DUST_USD = 50_000;
+/** Also ignore a leg under this share of account value, when we know the account. */
+export const DUST_ACCOUNT_FRAC = 0.01;
+/**
+ * A stored book older than this is a baseline, not a move.
+ * The cron is 5 minutes, so one late run still counts and a stale book does not.
+ */
+export const FRESH_SNAP_MS = 12 * 60 * 1000;
+
 export type Thresholds = {
   notionalUsd: number;
   pnlUsd: number;
   /** 0.5 means a size increase above 50%. */
   addPct: number;
+  /** Account value for the 1% dust rule. 0 skips that rule. */
+  accountUsd?: number;
 };
 
 export type EventKind = "open" | "close" | "flip" | "add" | "swing";
@@ -42,6 +54,8 @@ export type WhaleEvent = {
   /** Fraction added, 0.8 means +80% size. */
   addFrac: number;
   score: number;
+  /** Set when this line summarises dust instead of naming each coin. */
+  summary?: number;
 };
 
 export function snapOf(positions: readonly Pos[], at: number): Snap {
@@ -113,12 +127,13 @@ export function detectEvents(
   for (const [coin, now] of after) {
     const was = before.get(coin);
     if (!was) {
-      if (now.notional >= th.notionalUsd) {
+      if (!isDust(now.notional, th.accountUsd) && now.notional >= th.notionalUsd) {
         events.push(make(ticker, "open", now, now.notional, 0, 0));
         touched.add(coin);
       }
       continue;
     }
+    if (isDust(was.notional, th.accountUsd) && isDust(now.notional, th.accountUsd)) continue;
     if (was.side !== now.side) {
       if (was.notional >= th.notionalUsd || now.notional >= th.notionalUsd) {
         const flip = make(ticker, "flip", now, Math.max(was.notional, now.notional), 0, 0);
@@ -130,6 +145,7 @@ export function detectEvents(
     }
     const oldAbs = Math.abs(was.szi);
     const newAbs = Math.abs(now.szi);
+    if (isDust(now.notional, th.accountUsd)) continue;
     if (oldAbs > 0 && newAbs > oldAbs * (1 + th.addPct) && now.notional >= th.notionalUsd) {
       events.push(make(ticker, "add", now, now.notional, 0, (newAbs - oldAbs) / oldAbs));
       touched.add(coin);
@@ -138,6 +154,7 @@ export function detectEvents(
 
   for (const [coin, was] of before) {
     if (after.has(coin)) continue;
+    if (isDust(was.notional, th.accountUsd)) continue;
     const pnl = realised && Object.prototype.hasOwnProperty.call(realised, coin) ? realised[coin]! : was.upnl;
     if (Math.abs(pnl) >= th.pnlUsd) {
       events.push(make(ticker, "close", was, Math.abs(pnl), pnl, 0));
@@ -147,13 +164,74 @@ export function detectEvents(
   for (const [coin, now] of after) {
     const was = before.get(coin);
     if (!was || was.side !== now.side || touched.has(coin)) continue;
+    if (isDust(now.notional, th.accountUsd)) continue;
     const delta = now.upnl - was.upnl;
     if (Math.abs(delta) >= th.pnlUsd) {
       events.push(make(ticker, "swing", now, Math.abs(delta), delta, 0));
     }
   }
 
-  return events;
+  return dedupeEvents(events);
+}
+
+/** True when a leg is too small to name. Under $50k, or under 1% of account value. */
+export function isDust(notional: number, accountUsd?: number): boolean {
+  if (!(notional >= DUST_USD)) return true;
+  if (accountUsd && accountUsd > 0 && notional < accountUsd * DUST_ACCOUNT_FRAC) return true;
+  return false;
+}
+
+export function notablePositions(positions: readonly Pos[], accountUsd?: number): Pos[] {
+  return positions.filter((p) => !isDust(p.notional, accountUsd));
+}
+
+/** How many dust legs appeared, vanished, or changed size. Notable legs are not counted. */
+export function dustMoves(prev: readonly Pos[], next: readonly Pos[], accountUsd?: number): number {
+  const before = indexPos(prev);
+  const after = indexPos(next);
+  const coins = new Set<string>([...before.keys(), ...after.keys()]);
+  let n = 0;
+  for (const coin of coins) {
+    const was = before.get(coin);
+    const now = after.get(coin);
+    const wasDust = !was || isDust(was.notional, accountUsd);
+    const nowDust = !now || isDust(now.notional, accountUsd);
+    if (!wasDust && !nowDust) continue;
+    if (was && now && was.side === now.side) {
+      const denom = Math.max(Math.abs(was.szi), 1e-12);
+      if (Math.abs(now.szi - was.szi) / denom <= 0.01) continue;
+    }
+    if (!was && now && !nowDust) continue;
+    if (was && !now && !wasDust) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/** One line per coin and kind. The larger score wins. */
+export function dedupeEvents(events: readonly WhaleEvent[]): WhaleEvent[] {
+  const best = new Map<string, WhaleEvent>();
+  for (const e of events) {
+    const key = `${e.kind}|${e.coin}`;
+    const prev = best.get(key);
+    if (!prev || e.score > prev.score) best.set(key, e);
+  }
+  return [...best.values()];
+}
+
+export function summaryEvent(ticker: string, count: number): WhaleEvent {
+  return {
+    kind: "swing",
+    ticker,
+    coin: "",
+    side: "long",
+    notional: 0,
+    entry: 0,
+    pnl: 0,
+    addFrac: 0,
+    score: 1,
+    summary: count,
+  };
 }
 
 /**

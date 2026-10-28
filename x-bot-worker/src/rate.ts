@@ -6,6 +6,9 @@
 
 import type { WhaleEvent } from "./events.js";
 
+/** One whale can take at most this many of the daily posts. */
+export const MAX_POSTS_PER_WHALE = 2;
+
 export type RateState = {
   day: string;
   count: number;
@@ -13,6 +16,8 @@ export type RateState = {
   lastPostAt: number;
   backoffUntil: number;
   recapDay: string;
+  /** Event posts today, keyed by ticker. Recaps are not counted. */
+  byWhale: Record<string, number>;
 };
 
 export type Limits = {
@@ -26,7 +31,7 @@ export function utcDay(ms: number): string {
 }
 
 export function emptyRate(now: number): RateState {
-  return { day: utcDay(now), count: 0, spentMilli: 0, lastPostAt: 0, backoffUntil: 0, recapDay: "" };
+  return { day: utcDay(now), count: 0, spentMilli: 0, lastPostAt: 0, backoffUntil: 0, recapDay: "", byWhale: {} };
 }
 
 export function usdToMilli(usd: number): number {
@@ -42,10 +47,13 @@ export function formatMilli(milli: number): string {
   return sign + whole.toString() + "." + frac;
 }
 
-export function effectiveRate(state: RateState, now: number): { day: string; count: number; spentMilli: number } {
+export function effectiveRate(
+  state: RateState,
+  now: number,
+): { day: string; count: number; spentMilli: number; byWhale: Record<string, number> } {
   const day = utcDay(now);
-  if (state.day !== day) return { day, count: 0, spentMilli: 0 };
-  return { day, count: state.count, spentMilli: state.spentMilli };
+  if (state.day !== day) return { day, count: 0, spentMilli: 0, byWhale: {} };
+  return { day, count: state.count, spentMilli: state.spentMilli, byWhale: state.byWhale ?? {} };
 }
 
 export function canPost(
@@ -64,8 +72,17 @@ export function canPost(
   return { ok: true, reason: "" };
 }
 
-export function recordPost(state: RateState, now: number, costMilli: number, recap: boolean): RateState {
+export function recordPost(
+  state: RateState,
+  now: number,
+  costMilli: number,
+  recap: boolean,
+  ticker = "",
+): RateState {
   const today = effectiveRate(state, now);
+  const byWhale = { ...today.byWhale };
+  const key = ticker.toUpperCase();
+  if (!recap && key) byWhale[key] = (byWhale[key] ?? 0) + 1;
   return {
     day: today.day,
     count: today.count + 1,
@@ -73,6 +90,7 @@ export function recordPost(state: RateState, now: number, costMilli: number, rec
     lastPostAt: now,
     backoffUntil: state.backoffUntil,
     recapDay: recap ? today.day : state.recapDay === today.day ? state.recapDay : "",
+    byWhale,
   };
 }
 
@@ -99,17 +117,26 @@ export function backoffSeconds(status: number, retryAfter: string | null, nowMs 
 
 export function chooseWhale(
   groups: readonly { ticker: string; events: readonly { score: number }[] }[],
+  posted: Readonly<Record<string, number>> = {},
+  maxPerWhale = MAX_POSTS_PER_WHALE,
 ): { ticker: string; score: number } | null {
-  let best: { ticker: string; score: number } | null = null;
+  let best: { ticker: string; score: number; posts: number } | null = null;
   for (const g of groups) {
     if (!g.events.length) continue;
+    const posts = posted[g.ticker.toUpperCase()] ?? 0;
+    if (posts >= maxPerWhale) continue;
     let score = 0;
     for (const e of g.events) if (e.score > score) score = e.score;
-    if (!best || score > best.score || (score === best.score && g.ticker < best.ticker)) {
-      best = { ticker: g.ticker, score };
+    if (
+      !best
+      || score > best.score
+      || (score === best.score && posts < best.posts)
+      || (score === best.score && posts === best.posts && g.ticker < best.ticker)
+    ) {
+      best = { ticker: g.ticker, score, posts };
     }
   }
-  return best;
+  return best ? { ticker: best.ticker, score: best.score } : null;
 }
 
 export function recapDue(state: RateState, now: number, enabled: boolean): boolean {

@@ -69,14 +69,17 @@ test("none mode never contains a URL or a bare domain", () => {
       });
       assert.equal(containsUrlOrDomain(text), false, text);
       assert.equal(text.includes("@"), false, text);
+      assert.equal(/\bbets?\b/i.test(text), false, text);
+      assert.equal(/airdrop/i.test(text), false, text);
+      assert.equal(text.includes("pays"), false, text);
       assert.equal(text.includes("whalewallet.fun"), false, text);
       assert.equal(text.toLowerCase().includes("x.com"), false, text);
       assert.ok(text.length <= 280, text);
       assert.equal(costMilli(text), PLAIN_MILLI, text);
       if (text.includes("link in bio")) footers.bio++;
       if (text.includes("whalewallet dot fun")) footers.dot++;
-      if (text.includes("Season 0, points only")) footers.season++;
-      if (!text.includes("link in bio") && !text.includes("whalewallet dot fun") && !text.includes("Season 0, points only")) {
+      if (text.includes("Season 0 coming soon")) footers.season++;
+      if (!text.includes("link in bio") && !text.includes("whalewallet dot fun") && !text.includes("Season 0 coming soon")) {
         footers.bare++;
       }
     }
@@ -106,7 +109,7 @@ test("voice lines and the link modes", () => {
     linkMode: "none",
     variant: 3,
   });
-  assert.equal(open, "🐋 MACHI just opened a $5.2M ETH long at 3,412. TAIL pays 1.8x · FADE pays 2.3x");
+  assert.equal(open, "🐋 MACHI just opened a $5.2M ETH long at 3,412.");
 
   const withBio = compose({
     ticker: "MACHI",
@@ -207,6 +210,17 @@ test("voice lines and the link modes", () => {
   assert.equal(silk.includes("@"), false);
   assert.equal(silk.toLowerCase().includes("silkbtc"), false);
 
+  const tsla = compose({
+    ticker: "FAUVES",
+    events: [ev({ kind: "open", ticker: "FAUVES", coin: "xyz:TSLA", notional: 4_200_000, entry: 430 })],
+    now,
+    linkMode: "none",
+    variant: 3,
+  });
+  assert.ok(tsla.includes("$TSLA"), tsla);
+  assert.equal(tsla.includes("xyz:"), false, tsla);
+  assert.equal(/\bbets?\b/i.test(tsla), false);
+
   const dailyEvent = compose({
     ticker: "MACHI",
     events: [ev({ kind: "open", ticker: "MACHI", coin: "ETH" })],
@@ -238,7 +252,9 @@ test("voice lines and the link modes", () => {
     linkMode: "all",
     variant: 3,
   });
-  assert.ok(all.includes("https://whalewallet.fun/#/w/MACHI"));
+  assert.ok(all.includes("https://whalewallet.fun"));
+  assert.equal(all.includes("#/w/"), false);
+  assert.equal(all.includes("b619"), false);
   assert.equal(all.includes("link in bio"), false);
   assert.equal(all.includes("whalewallet dot fun"), false);
   assert.equal(costMilli(all), URL_MILLI);

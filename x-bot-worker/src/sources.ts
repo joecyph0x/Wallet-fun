@@ -88,8 +88,26 @@ export function mergeBooks(books: readonly (Pos[] | null)[]): Pos[] | null {
   return out;
 }
 
-/** "xyz:SILVER" reads as "SILVER" in a post. The dex prefix stays in the snapshot key. */
+/**
+ * HIP-3 names arrive as `xyz:TSLA`. Posts show `$TSLA`.
+ * The dex prefix stays in the snapshot key. A plain coin (ETH) is unchanged.
+ */
 export function displayCoin(coin: string): string {
-  const i = coin.indexOf(":");
-  return i > 0 ? coin.slice(i + 1) : coin;
+  const raw = coin.trim().replace(/@/g, "");
+  const i = raw.indexOf(":");
+  const name = (i > 0 ? raw.slice(i + 1) : raw).trim();
+  if (!name) return raw;
+  if (i > 0 && /^[A-Za-z][A-Za-z0-9.]{0,15}$/.test(name)) {
+    return "$" + name.replace(/\./g, "").toUpperCase();
+  }
+  return name;
+}
+
+/** Account value in USD from a clearinghouseState body. Null when the field is missing. */
+export function accountValueFromClearinghouse(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const row = body as { marginSummary?: { accountValue?: unknown }; crossMarginSummary?: { accountValue?: unknown } };
+  const raw = row.marginSummary?.accountValue ?? row.crossMarginSummary?.accountValue;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
