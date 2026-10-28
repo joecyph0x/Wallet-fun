@@ -19,9 +19,13 @@ import {WalletMarketV3} from "./WalletMarketV3.sol";
 ///         due returns false and is skipped. A market whose book is incomplete reverts
 ///         inside the call and does not roll back the rest of the batch.
 ///
-///         Tracking and parameter changes wait `Config.TIMELOCK` (24h). The guardian can
-///         pause new buys immediately, and can only tighten the optional pot cap.
-///         Sells, claims, cancels, and withdrawals stay open while buys are paused.
+///         Tracking and parameter changes wait `Config.TIMELOCK` (24h). One change
+///         can be pending. `schedule` reverts if one is already waiting; cancel or
+///         execute it first. The owner can be replaced with `OP_OWNER`. The guardian
+///         can pause new buys immediately, and can only tighten the optional pot cap.
+///         The guardian can cancel a pending change, except a pending `OP_GUARDIAN`
+///         replacement, which only the owner can clear. Sells, claims, cancels, and
+///         withdrawals stay open while buys are paused.
 ///
 ///         The registry is an ERC-1967 proxy. Markets share one beacon. Both upgrades
 ///         wait out the same timelock. Storage layout is append-only.
@@ -51,6 +55,8 @@ contract WalletRegistryV3 {
     error CapDirection();
     error Reentered();
     error Batch();
+    error ChangePending();
+    error GuardianCannotCancelOwnReplacement();
 
     event WalletListed(address indexed whale, address indexed market, string ticker, string name, address[] members);
     event OptedOut(address indexed whale, address indexed submitter);
@@ -85,6 +91,7 @@ contract WalletRegistryV3 {
     bytes4 public constant OP_GUARDIAN = bytes4(keccak256("opSetGuardian(address)"));
     bytes4 public constant OP_FEE_WALLET = bytes4(keccak256("opSetFeeWallet(address)"));
     bytes4 public constant OP_HOUSE_SELL = bytes4(keccak256("opHouseSell(address,uint8,uint256)"));
+    bytes4 public constant OP_OWNER = bytes4(keccak256("opSetOwner(address)"));
 
     string public constant VERSION = "3";
 
@@ -291,13 +298,18 @@ contract WalletRegistryV3 {
     }
 
     function schedule(bytes calldata data) external onlyOwner {
+        if (pendingEta != 0) revert ChangePending();
         if (data.length < 4 || !_allowed(bytes4(data))) revert Timelocked();
         pendingData = data;
         pendingEta = block.timestamp + Config.TIMELOCK;
         emit Scheduled(bytes4(data), pendingEta);
     }
 
-    function cancelPending() external onlyGuardian {
+    function cancelPending() external {
+        if (msg.sender != owner && msg.sender != guardian) revert NotGuardian();
+        if (
+            msg.sender != owner && pendingData.length >= 4 && bytes4(pendingData) == OP_GUARDIAN
+        ) revert GuardianCannotCancelOwnReplacement();
         delete pendingData;
         pendingEta = 0;
         emit PendingCleared();
@@ -373,6 +385,11 @@ contract WalletRegistryV3 {
         } else if (sel == OP_HOUSE_SELL) {
             (address whale, uint8 side, uint256 shares) = abi.decode(data[4:], (address, uint8, uint256));
             _market(whale).commitHouseSell(WalletMarketV3.Side(side), shares);
+        } else if (sel == OP_OWNER) {
+            address next = abi.decode(data[4:], (address));
+            if (next == address(0)) revert BadAddress();
+            owner = next;
+            emit OwnershipTransferred(next);
         } else {
             revert Timelocked();
         }
@@ -487,7 +504,7 @@ contract WalletRegistryV3 {
     function _allowed(bytes4 sel) internal pure returns (bool) {
         return sel == OP_WEIGHTED || sel == OP_DEX || sel == OP_MEMBER || sel == OP_EPS || sel == OP_FEE || sel == OP_CAP
             || sel == OP_BEACON || sel == OP_REGISTRY || sel == OP_LIST || sel == OP_GUARDIAN || sel == OP_FEE_WALLET
-            || sel == OP_HOUSE_SELL;
+            || sel == OP_HOUSE_SELL || sel == OP_OWNER;
     }
 
     function _transfer(address to, uint256 amount) internal {
