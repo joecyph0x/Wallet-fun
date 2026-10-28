@@ -25,17 +25,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Stage web/ and inline the address book
+      - name: Stage the coming-soon root and the unlisted app
         run: |
-          mkdir -p _site/config
-          cp web/index.html web/chain.js web/v3abi.js _site/
-          cp -L web/config/testnet-v3.json _site/config/testnet-v3.json
+          mkdir -p _site
+          cp web/index.html web/robots.txt _site/
+          app=$(find web -mindepth 2 -maxdepth 2 -name index.html -printf '%h\n')
+          test -n "$app"
+          name=$(basename "$app")
+          mkdir -p "_site/$name/config"
+          cp "$app/index.html" "$app/chain.js" "$app/v3abi.js" "_site/$name/"
+          cp -L "$app/config/testnet-v3.json" "_site/$name/config/testnet-v3.json"
           test -s _site/index.html
-          test -s _site/chain.js
-          test -s _site/v3abi.js
-          test -s _site/config/testnet-v3.json
+          test -s _site/robots.txt
+          test -s "_site/$name/index.html"
+          test -s "_site/$name/chain.js"
+          test -s "_site/$name/v3abi.js"
+          test -s "_site/$name/config/testnet-v3.json"
+          test ! -e _site/chain.js
+          test ! -e _site/v3abi.js
+          test ! -e _site/config
           if grep -R -n -E 'PRIVATE_KEY|BEGIN OPENSSH PRIVATE|BEGIN EC PRIVATE' _site; then
             echo "refusing to publish a secret" >&2
+            exit 1
+          fi
+          if grep -n "$name" _site/index.html _site/robots.txt; then
+            echo "refusing to publish the app path on the public root" >&2
             exit 1
           fi
       - uses: actions/upload-pages-artifact@v3
