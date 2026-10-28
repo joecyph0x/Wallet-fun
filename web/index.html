@@ -39,8 +39,11 @@ main{max-width:1260px;margin:0 auto;padding:18px}
 .hero h1{font-family:'Bungee';font-size:clamp(26px,4.4vw,46px);margin:0;line-height:1.05}
 .hero h1 .t{color:var(--tail);text-shadow:0 0 18px #39ff8866}.hero h1 .f{color:var(--fade);text-shadow:0 0 18px #ff2e8866}
 .hero p{color:var(--mut);margin:8px 0 0;max-width:640px}
-.clock{text-align:right}.clock .big{font:700 40px 'JetBrains Mono';color:var(--y);text-shadow:0 0 16px #ffe14d55}
+.clock{text-align:right}.clock .big,.clock .fillline{font:700 40px 'JetBrains Mono',monospace;color:var(--y);text-shadow:0 0 16px #ffe14d55;line-height:1.15}
+.clock .fillline{margin:0}
 .clock small{color:var(--mut);font-size:12px;display:block}
+.hero>.ch,.hero>.clock{min-width:0;max-width:100%}
+.hero>.ch .mono{overflow-wrap:anywhere}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 .card{background:linear-gradient(180deg,rgba(20,20,36,.80),rgba(14,14,24,.74));border:1px solid var(--line);border-radius:16px;padding:14px;position:relative;transition:.15s;cursor:pointer;overflow:hidden}
 .card:hover{transform:translateY(-2px);border-color:#3ee0ff88;box-shadow:0 8px 30px #3ee0ff22}
@@ -105,7 +108,7 @@ canvas#cv{width:100%;max-width:900px;border-radius:14px;border:1px solid var(--l
   .modal{position:fixed;inset:0;z-index:40;background:#06060be0;display:grid;place-items:center;padding:16px}
   .sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;width:min(440px,100%);max-height:92vh;overflow:auto;box-shadow:0 0 40px #3ee0ff33}
   .sheet .kp{margin-top:10px}
-@media(max-width:600px){nav{flex-wrap:nowrap;overflow-x:auto;width:100%}nav a{white-space:nowrap;padding:6px 10px}.pill{font-size:11px;padding:5px 8px}.poc div,.tn div{font-size:10px}header{padding:10px 12px;gap:8px}.logo{font-size:15px}main{padding:12px}.clock .big{font-size:30px}.hdr-r{margin-left:0;width:100%}.hero{align-items:flex-start}.clock{text-align:left}}
+@media(max-width:600px){nav{flex-wrap:nowrap;overflow-x:auto;width:100%}nav a{white-space:nowrap;padding:6px 10px}.pill{font-size:11px;padding:5px 8px}.poc div,.tn div{font-size:10px}header{padding:10px 12px;gap:8px}.logo{font-size:15px}main{padding:12px}.clock .big,.clock .fillline{font-size:30px}.hdr-r{margin-left:0;width:100%}.hero{align-items:flex-start}.clock{text-align:left}}
 </style>
 </head>
 <body>
@@ -540,9 +543,7 @@ function tradeBox(tk,w){
   const sellF=live&&WW.canSell(tk,'F');
   const link=s=>`<a href="#/card?tk=${tk}&s=${s}" style="color:var(--c)">share →</a>`;
   const act=geo?'disabled':'';
-  const line=fillMarkup(tk);
   return `<div class="note">Withdrawable: <b class="pts">${esc(live?v.withdrawable:'—')} USDC</b>${live?staleMark(v.staleWithdrawable):''} · minimum 10 USDC · one pending order per wallet. <a href="#/balance" style="color:var(--c)">Deposit or withdraw</a></div>
-  ${line}
   ${paused?`<p class="note">Buys are paused. Sell and withdraw stay open. ${esc(WW.pauseNote())}</p>`:''}
   ${st==='redeem-only'?'<p class="note">This whale opted out. New buys are closed. Sells still fill when the epoch ends.</p>':''}
   <input id="amt" type="number" min="10" step="1" value="10" style="margin-top:8px">
@@ -556,7 +557,7 @@ function tradeBox(tk,w){
 }
 function detail(tk){
   const w=byTk[tk];if(!w)return home();const x=S.w[tk];const tp=nav(x,'T'),fp=nav(x,'F');const share=(x.T+x.F)>0?x.T/(x.T+x.F):0.5;
-  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div></div>
+  return`<div class="hero"><div class="ch"><div class="av" style="background:${w.col};width:64px;height:64px;font-size:30px">${w.emoji}</div><div><h1 style="font-size:clamp(24px,4vw,38px)">${esc(w.name)} <span class="tkr" style="font-size:16px">$${tk}</span></h1><p class="mono" style="font-size:12px"><a target="_blank" href="${w.testnetOnly?'https://app.hyperliquid-testnet.xyz/explorer/address/':'https://app.hyperliquid.xyz/explorer/address/'}${w.addr}">${w.addr}</a> · source: ${esc(w.src)} · <span class="badge ${x.status==='live'?'b-live':'b-sleep'}">${x.status==='live'?'● LIVE':'😴 SLEEPING'}</span></p></div></div><div class="clock">${fillMarkup(tk)}</div></div>
   <div class="kp" style="margin-bottom:14px"><div><div class="lbl">Equity (live)</div><div class="big2">${usd(x.eq)}</div></div><div><div class="lbl">Open notional</div><div class="big2">${usd(x.ntl)}</div><small class="note">${x.eq?(x.ntl/x.eq).toFixed(1)+'x effective':''}</small></div><div><div class="lbl">Unsettled PnL (this min)</div><div class="big2 ${cls(x.pend)}">${usd(x.pend)}</div><small class="note">${pct(x.pend/Math.max(x.eRef,1),3)} of E_ref</small></div><div><div class="lbl">24h PnL (HL portfolio)</div><div class="big2 ${cls(x.pnl24)}">${usd(x.pnl24)}</div></div></div>
   <div class="dgrid"><div>
    <div class="panel"><h3>Price · TAIL vs FADE (NAV per token)</h3>${spark(x,600,120).replace('class="spark"','class="spark" style="height:140px"')}
