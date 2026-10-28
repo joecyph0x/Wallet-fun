@@ -24,5 +24,10 @@ hyperevm_testnet = "https://rpc.hyperliquid-testnet.xyz/evm"
 [fuzz]
 runs = 256
 
+[invariant]
+runs = 64
+depth = 20
+fail_on_revert = false
+
 # `forge test` compiles this profile and runs files in test/ only.
 # script/DeploySeason0.s.sol is not executed here and is not part of CI.

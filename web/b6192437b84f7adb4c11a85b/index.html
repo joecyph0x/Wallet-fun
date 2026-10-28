@@ -522,7 +522,7 @@ window.paintFills=paintFills;
 setInterval(paintFills,1000);
 function pendingBlock(tk){
   if(!window.WW||!WW.live()) return '<p class="note">Connect a wallet to bet.</p>';
-  const p=WW.pending(tk);const fee=(WW.view()&&WW.view().feeText)||'0.5%';
+  const p=WW.pending(tk);const fee=(WW.view()&&WW.view().feeText)||'0.25%';
   if(!p||!p.legs.length) return '';
   const bits=p.legs.map(l=>{const side=l.side==='T'?'TAIL':'FADE';return l.kind==='buy'?`${esc(l.text)} USDC → ${side}`:`sell ${esc(l.text)} ${side}`});
   const cancel=p.canCancel?` <a href="javascript:WW.cancel('${tk}')" style="color:var(--c)">cancel · ${esc(fee)} fee</a>`:'';
@@ -677,7 +677,7 @@ function positionsPage(){
     const fadeBadge=row.side==='F'?' style="background:#ff2e8822;color:#FF2E88;border-color:#ff2e8855"':'';
     const pnl=row.pnl==null?'—':esc(row.pnl)+' USDC'+(row.pnlPct==null?'':' ('+(row.pnlPct>0?'+':'')+Number(row.pnlPct).toFixed(2)+'%)');
     const pnlRowCls=row.pnl==null?'':(String(row.pnl).charAt(0)==='-'?'dn':'up');
-    const status=!row.pendingText?'':`${fillMarkup(row.tk)}${row.canCancel?`<div class="note">Cancel keeps the ${esc((window.WW&&WW.view&&WW.view().feeText)||'0.5%')} fee.</div>`:''}`;
+    const status=!row.pendingText?'':`${fillMarkup(row.tk)}${row.canCancel?`<div class="note">Cancel keeps the ${esc((window.WW&&WW.view&&WW.view().feeText)||'0.25%')} fee.</div>`:''}`;
     const costNote=row.cost==null&&row.shares!=='0'&&row.shares!=='—'?'<div class="note">Value only. Cost basis was not in the recent log window.</div>':'';
     return `<div class="panel" style="margin-bottom:12px"><div class="ch"><div class="av" style="background:${w.col}">${w.emoji}</div><div><div class="nm">${esc(w.name)}</div><div class="tkr">$${esc(w.tk)}</div></div><span class="badge ${row.side==='T'?'b-live':'b-sleep'}"${fadeBadge}>${side}</span></div>
     <div class="kp" style="margin-top:12px"><div><div class="lbl">Side</div><div class="val ${sideCls}">${side}</div></div><div><div class="lbl">Shares</div><div class="val">${esc(row.shares)}</div></div><div><div class="lbl">Value</div><div class="val">${esc(row.value)} USDC${staleMark(row.navStale)}</div></div><div><div class="lbl">Cost</div><div class="val">${row.cost==null?'—':esc(row.cost)+' USDC'}</div></div></div>
@@ -692,7 +692,7 @@ function how(){return`<div class="hero"><div><h1>How whalewallet.fun works</h1><
 <p>1. Every tracked Hyperliquid wallet has two sides: <b class="up">TAIL</b> (you think the whale wins) and <b class="dn">FADE</b> (you think they get rekt). Each side has a pot.</p>
 <p>2. About every <b>10 minutes</b> a settle reads the whale's positions and marks. PnL = Σ size × Δmark. Deposits and withdrawals do not move it.</p>
 <p>3. r = PnL ÷ reference equity, capped at ±25% per settle and inside a ±50% UTC-day budget. The pot moved = r × min(TAIL pot, FADE pot, 25% × equity). A one-sided pot does not pay itself.</p>
-<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It fills when that coin's 10 minute epoch ends, about 20 seconds later. Cancel before the epoch ends keeps a 0.5% fee. After that, Claim fills it immediately.</p>
+<p>4. TAIL and FADE bets are USDC. Approve the token, deposit it into the registry, then commit. Minimum 10 USDC. One pending order per wallet. It fills when that coin's 10 minute epoch ends, about 20 seconds later. Cancel before the epoch ends keeps a 0.25% fee. After that, Claim fills it immediately.</p>
 <p>5. A pause stops new buys. Sell, claim, cancel, and withdraw stay open. After 72 hours, pro-rata redeem pays the last NAV with no new sample.</p>
 <p>6. Wallet owners can opt out by signing a message. ${esc(V3.SEASON)} Testnet is open in every region. On mainnet, connecting and betting are not offered in the UK, the US, or their territories. Copy the whale opens that coin on Hyperliquid. It does not place the order.</p>
 </div>`}

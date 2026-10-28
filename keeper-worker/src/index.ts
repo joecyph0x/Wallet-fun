@@ -23,7 +23,7 @@ import {
   type MarketSnap,
   type SettleReason,
 } from "./decide.js";
-import { pickLatestLog, settleAgeSec, type LogRow } from "./health.js";
+import { pickLatestLog, settleAgeSec, settleStalled, type LogRow } from "./health.js";
 import { accountFrom, encodeSettle, SETTLE_GAS, signLegacy, type Hex, type KeeperAccount } from "./sign.js";
 import {
   assertV3Chain,
@@ -429,6 +429,8 @@ type HealthMarket = {
   lastSettleTs: number;
   ageSec: number | null;
   openOrders: number | null;
+  /** True when this market has settled before and is more than two epochs late. */
+  stalled: boolean;
 };
 
 type HealthBody = {
@@ -441,6 +443,8 @@ type HealthBody = {
   latestTx: string | null;
   latestTxBlock: number | null;
   markets: HealthMarket[];
+  /** True when any listed market has stopped settling. */
+  settleStalled: boolean;
   errors: string[];
   note: string;
 };
@@ -547,7 +551,9 @@ async function runV3(env: Env): Promise<Report> {
         continue;
       }
       if (members !== 1n || dexes !== 1n || !map) {
-        report.errors.push(`${row.market} book is not a single dex-0 account`);
+        const why = `${row.market} book is not a single dex-0 account`;
+        report.errors.push(why);
+        console.log(`[v3 warn] ${row.market} is due but was not settled: ${why}`);
         continue;
       }
       const state = await info<{ assetPositions?: { position: { coin: string; szi: string } }[] }>(
@@ -556,7 +562,9 @@ async function runV3(env: Env): Promise<Report> {
         budget,
       );
       if (!state) {
-        report.errors.push(`${row.market} info API unavailable`);
+        const why = `${row.market} info API unavailable`;
+        report.errors.push(why);
+        console.log(`[v3 warn] ${row.market} is due but was not settled: ${why}`);
         continue;
       }
       const built = assetsForWhale(
@@ -564,7 +572,9 @@ async function runV3(env: Env): Promise<Report> {
         (state.assetPositions ?? []).map((p) => p.position),
       );
       if (built.unknown.length) {
-        report.errors.push(`${row.market} unknown coin ${built.unknown.join(",")}`);
+        const why = `${row.market} unknown coin ${built.unknown.join(",")}`;
+        report.errors.push(why);
+        console.log(`[v3 warn] ${row.market} is due but was not settled: ${why}`);
         continue;
       }
       ready.push({ market: row.market, whale: row.whale, assets: built.assets });
@@ -622,6 +632,7 @@ async function health(env: Env): Promise<HealthBody> {
     latestTx: null,
     latestTxBlock: null,
     markets: [],
+    settleStalled: false,
     errors: [],
     note: NOTE,
   };
@@ -653,18 +664,27 @@ async function health(env: Env): Promise<HealthBody> {
     }
     const views = calls.length ? await rpcBatch(env, calls, budget) : [];
     const nowSec = Math.floor(Date.now() / 1000);
+    const epochSec = Number(env.EPOCH_SEC) > 0 ? Number(env.EPOCH_SEC) : 600;
     body.markets = listed.map((row, i) => {
       const last = Number(u256(views[i * 2]?.result) ?? 0n);
       const ordersRow = views[i * 2 + 1];
       const orders = ordersRow?.error || ordersRow?.result == null ? null : Number(u256(ordersRow.result) ?? 0n);
+      const stalled = settleStalled(last, nowSec, epochSec);
+      if (stalled) {
+        const why = `${row.market} stopped settling (last settle ${nowSec - last}s ago)`;
+        body.errors.push(why);
+        console.log(`[v3 warn] ${why}`);
+      }
       return {
         market: row.market,
         whale: row.whale,
         lastSettleTs: last,
         ageSec: settleAgeSec(last, nowSec),
         openOrders: orders,
+        stalled,
       };
     });
+    body.settleStalled = body.markets.some((row) => row.stalled);
     try {
       const latest = await latestKeeperTx(env, account.address, listed, block, budget);
       body.latestTx = latest?.hash ?? null;

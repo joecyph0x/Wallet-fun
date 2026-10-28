@@ -26,7 +26,7 @@
   let floorUntil = 0;
   let pausedFlag = false;
   let pauseSinceSec = 0;
-  let feeBps = 50;
+  let feeBps = 25;
   let pauseAt = 0;
   let userGen = 0;
   let potGen = 0;
@@ -53,7 +53,7 @@
     allowance: "—",
     committed: "0",
     paused: false,
-    feeText: "0.5%",
+    feeText: "0.25%",
     holds: {},
     pending: {},
     status: {},

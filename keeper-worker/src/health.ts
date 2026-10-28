@@ -21,3 +21,13 @@ export function settleAgeSec(lastSettleTs: number, nowSec: number): number | nul
   if (!lastSettleTs) return null;
   return nowSec - lastSettleTs;
 }
+
+/**
+ * A market that has settled before, and is now more than two epochs late.
+ * A brand-new market (lastSettleTs 0) is not flagged here.
+ */
+export function settleStalled(lastSettleTs: number, nowSec: number, epochSec: number): boolean {
+  if (!lastSettleTs || !Number.isInteger(epochSec) || epochSec <= 0) return false;
+  if (!Number.isInteger(nowSec) || nowSec < lastSettleTs) return false;
+  return nowSec - lastSettleTs > epochSec * 2;
+}

@@ -16,7 +16,8 @@ library Config {
     /// @dev Signed cumulative r over a UTC day.
     uint256 internal constant DAILY_CAP = RAY / 2;
 
-    uint256 internal constant FEE_BPS = 50;
+    /// @dev Trade fee and the cancel fee. Cancel reads this same `feeBps`; it is not a separate rate.
+    uint256 internal constant FEE_BPS = 25;
     uint256 internal constant MAX_FEE_BPS = 100;
     /// @dev Dust below this is rejected. 10 USDC.
     uint256 internal constant MIN_ORDER = 10 * UNIT;
