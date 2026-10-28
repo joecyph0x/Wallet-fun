@@ -1,8 +1,8 @@
 /**
  * Brand voice: short, degen, emoji-light, no advice, no @mentions.
  * X charges $0.015 for a plain post and $0.20 when the post contains any URL.
- * X also auto-links a bare domain, so "whalewallet.fun" counts. Default posts
- * say "link in bio" or "whalewallet dot fun" instead, and only on some of them.
+ * X also auto-links a bare domain, so "whalewallet.fun" counts. The pinned post
+ * carries the link. A move post only adds the Season 0 line about one time in four.
  */
 
 import type { Side, WhaleEvent } from "./events.js";
@@ -72,14 +72,22 @@ export function oddsLine(odds: Odds | null | undefined): string {
   return `TAIL pays ${formatPays(total / odds.tail)} · FADE pays ${formatPays(total / odds.fade)}`;
 }
 
-/** Coin text for a post. `xyz:TSLA` becomes `$TSLA`. `@` and domains are stripped. */
+/** Coin text for a post. Every ticker gets a dollar: ETH → $ETH, xyz:TSLA → $TSLA. */
 export function postCoin(coin: string): string {
   const shown = displayCoin(coin);
-  if (shown.startsWith("$")) {
-    const name = safeLabel(shown.slice(1)).replace(/\s+/g, "");
-    return name ? "$" + name : "a market";
-  }
-  return safeLabel(shown) || "a market";
+  const bare = shown.startsWith("$") ? shown.slice(1) : shown;
+  const name = safeLabel(bare).replace(/\s+/g, "").toUpperCase();
+  return name ? "$" + name : "a market";
+}
+
+export const HOOKS = [
+  "TAIL or FADE? 🟢🩷",
+  "Tailing or fading this one? 🟢🩷",
+  "Who's fading? 🩷",
+] as const;
+
+export function engagementHook(seed: number): string {
+  return HOOKS[Math.abs(seed) % HOOKS.length] ?? HOOKS[0];
 }
 
 /** Drop @ and dots so a coin name cannot become a mention or an auto-linked domain. */
@@ -121,8 +129,9 @@ export function compose(input: ComposeInput): string {
   const ticker = safeLabel(input.ticker).replace(/\s+/g, "") || "WHALE";
   const seed = input.variant ?? fnv(seedOf(input));
   const allowUrl = input.linkMode === "all" || (input.linkMode === "daily" && !!input.recap);
-  const body = input.recap ? recapBody(input, ticker) : eventBody(input.events ?? [], seed);
-  const foot = footer(seed, allowUrl);
+  const events = (input.events ?? []).filter((e) => !e.summary);
+  const body = input.recap ? recapBody(input, ticker) : eventBody(events, seed);
+  const foot = input.recap ? recapFoot(seed, allowUrl) : moveFoot(seed, allowUrl);
   let text = assemble(body, foot, allowUrl);
   if (!allowUrl && containsUrlOrDomain(text)) {
     text = `🐋 ${ticker} moved.\nSeason 0 coming soon`;
@@ -149,9 +158,6 @@ function eventBody(events: readonly WhaleEvent[], seed: number): string {
 
 function single(e: WhaleEvent, n: number): string {
   const ticker = safeLabel(e.ticker).replace(/\s+/g, "") || "WHALE";
-  if (e.summary && e.summary > 0) {
-    return `🐋 ${ticker} shuffled ${e.summary} smaller positions. None big enough to name.`;
-  }
   const coin = postCoin(e.coin);
   const usd = formatUsd(e.notional);
   const at = e.entry > 0 ? ` at ${formatPx(e.entry)}` : "";
@@ -201,7 +207,6 @@ function single(e: WhaleEvent, n: number): string {
 }
 
 function short(e: WhaleEvent): string {
-  if (e.summary && e.summary > 0) return `shuffled ${e.summary} smaller positions`;
   const coin = postCoin(e.coin);
   if (e.kind === "open") return `opened a ${formatUsd(e.notional)} ${coin} ${e.side}`;
   if (e.kind === "close") return `closed ${coin} ${e.side} ${formatUsd(e.pnl, true)}`;
@@ -219,17 +224,19 @@ function recapBody(input: ComposeInput, ticker: string): string {
   return `📒 Daybook. ${who} still on a ${formatUsd(b.notional)} ${coin} ${b.side}. ${n} whales tracked.`;
 }
 
-function footer(seed: number, allowUrl: boolean): string {
-  const season = SEASON_LINE;
-  if (allowUrl) {
-    const url = `https://${HOST}`;
-    return seed % 4 === 2 ? `${url}\n${season}` : url;
-  }
-  const slot = seed % 4;
-  if (slot === 0) return "link in bio";
-  if (slot === 1) return "whalewallet dot fun";
-  if (slot === 2) return season;
-  return "";
+function moveFoot(seed: number, allowUrl: boolean): string {
+  const parts: string[] = [];
+  if (seed % 4 === 2) parts.push(SEASON_LINE);
+  if (allowUrl) parts.push(`https://${HOST}`);
+  parts.push(engagementHook(seed));
+  return parts.join("\n");
+}
+
+function recapFoot(seed: number, allowUrl: boolean): string {
+  const parts: string[] = [];
+  if (allowUrl) parts.push(`https://${HOST}`);
+  if (seed % 4 === 2) parts.push(SEASON_LINE);
+  return parts.join("\n");
 }
 
 function assemble(body: string, foot: string, keepFoot: boolean): string {

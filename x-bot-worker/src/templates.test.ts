@@ -8,9 +8,11 @@ import {
   compose,
   containsUrlOrDomain,
   costMilli,
+  engagementHook,
   formatPays,
   formatPx,
   formatUsd,
+  HOOKS,
   oddsLine,
 } from "./templates.js";
 
@@ -56,7 +58,8 @@ test("dollar, price, and payout formatting", () => {
 });
 
 test("none mode never contains a URL or a bare domain", () => {
-  const footers = { bio: 0, dot: 0, season: 0, bare: 0 };
+  let season = 0;
+  const total = kinds.length * 12;
   for (const event of kinds) {
     for (let variant = 0; variant < 12; variant++) {
       const text = compose({
@@ -72,16 +75,14 @@ test("none mode never contains a URL or a bare domain", () => {
       assert.equal(/\bbets?\b/i.test(text), false, text);
       assert.equal(/airdrop/i.test(text), false, text);
       assert.equal(text.includes("pays"), false, text);
+      assert.equal(text.includes("link in bio"), false, text);
+      assert.equal(text.includes("whalewallet dot fun"), false, text);
       assert.equal(text.includes("whalewallet.fun"), false, text);
       assert.equal(text.toLowerCase().includes("x.com"), false, text);
+      assert.ok(text.endsWith("\n" + engagementHook(variant)), text);
       assert.ok(text.length <= 280, text);
       assert.equal(costMilli(text), PLAIN_MILLI, text);
-      if (text.includes("link in bio")) footers.bio++;
-      if (text.includes("whalewallet dot fun")) footers.dot++;
-      if (text.includes("Season 0 coming soon")) footers.season++;
-      if (!text.includes("link in bio") && !text.includes("whalewallet dot fun") && !text.includes("Season 0 coming soon")) {
-        footers.bare++;
-      }
+      if (text.includes("Season 0 coming soon")) season++;
     }
     const recap = compose({
       ticker: event.ticker,
@@ -95,9 +96,8 @@ test("none mode never contains a URL or a bare domain", () => {
     assert.equal(containsUrlOrDomain(recap), false, recap);
     assert.equal(costMilli(recap), PLAIN_MILLI);
   }
-  assert.ok(footers.bio > 0 && footers.dot > 0 && footers.season > 0 && footers.bare > 0);
-  assert.ok(footers.season < kinds.length * 12);
-  assert.ok(footers.bio < kinds.length * 12);
+  assert.equal(season, total / 4);
+  assert.ok(HOOKS.length >= 3);
 });
 
 test("voice lines and the link modes", () => {
@@ -109,7 +109,7 @@ test("voice lines and the link modes", () => {
     linkMode: "none",
     variant: 3,
   });
-  assert.equal(open, "🐋 MACHI just opened a $5.2M ETH long at 3,412.");
+  assert.equal(open, "🐋 MACHI just opened a $5.2M $ETH long at 3,412.\nTAIL or FADE? 🟢🩷");
 
   const withBio = compose({
     ticker: "MACHI",
@@ -119,7 +119,8 @@ test("voice lines and the link modes", () => {
     linkMode: "none",
     variant: 0,
   });
-  assert.ok(withBio.endsWith("\nlink in bio"));
+  assert.ok(withBio.endsWith("\nTAIL or FADE? 🟢🩷"));
+  assert.equal(withBio.includes("link in bio"), false);
   assert.equal(containsUrlOrDomain(withBio), false);
 
   const dotted = compose({
@@ -130,7 +131,8 @@ test("voice lines and the link modes", () => {
     linkMode: "none",
     variant: 1,
   });
-  assert.ok(dotted.endsWith("\nwhalewallet dot fun"));
+  assert.ok(dotted.endsWith("\nTailing or fading this one? 🟢🩷"));
+  assert.equal(dotted.includes("whalewallet dot fun"), false);
 
   assert.equal(
     compose({
@@ -140,7 +142,7 @@ test("voice lines and the link modes", () => {
       linkMode: "none",
       variant: 3,
     }),
-    "💀 WYNN closed the BTC short. Realised -$1.4M.",
+    "💀 WYNN closed the $BTC short. Realised -$1.4M.\nTAIL or FADE? 🟢🩷",
   );
   assert.equal(
     compose({
@@ -150,7 +152,7 @@ test("voice lines and the link modes", () => {
       linkMode: "none",
       variant: 3,
     }),
-    "🔄 JEFF flipped ETH short → long, $2.1M.",
+    "🔄 JEFF flipped $ETH short → long, $2.1M.\nTAIL or FADE? 🟢🩷",
   );
   assert.equal(
     compose({
@@ -160,7 +162,7 @@ test("voice lines and the link modes", () => {
       linkMode: "none",
       variant: 3,
     }),
-    "🐋 BOBBY added 80% to the SOL long. Now $3.4M.",
+    "🐋 BOBBY added 80% to the $SOL long. Now $3.4M.\nTAIL or FADE? 🟢🩷",
   );
   assert.equal(
     compose({
@@ -170,7 +172,7 @@ test("voice lines and the link modes", () => {
       linkMode: "none",
       variant: 3,
     }),
-    "📈 HLP ETH long is up $1.2M uPnL.",
+    "📈 HLP $ETH long is up $1.2M uPnL.\nTAIL or FADE? 🟢🩷",
   );
 
   const noOdds = compose({
@@ -181,7 +183,8 @@ test("voice lines and the link modes", () => {
     linkMode: "none",
     variant: 3,
   });
-  assert.equal(noOdds.includes("TAIL"), false);
+  assert.equal(noOdds.includes("pays"), false);
+  assert.ok(noOdds.endsWith("\nTAIL or FADE? 🟢🩷"));
 
   const collapsed = compose({
     ticker: "MACHI",

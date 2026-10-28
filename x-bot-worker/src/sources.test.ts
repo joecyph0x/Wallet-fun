@@ -78,7 +78,8 @@ test("displayCoin maps HIP-3 ids to dollar tickers", () => {
   assert.equal(displayCoin("ETH"), "ETH");
   assert.equal(postCoin("xyz:TSLA"), "$TSLA");
   assert.equal(postCoin("xyz:@TSLA"), "$TSLA");
-  assert.equal(postCoin("ETH"), "ETH");
+  assert.equal(postCoin("ETH"), "$ETH");
+  assert.equal(postCoin("btc"), "$BTC");
 });
 
 test("account value comes from the clearinghouse margin summary", () => {

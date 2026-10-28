@@ -6,10 +6,8 @@
 import {
   commitSnap,
   detectEvents,
-  dustMoves,
   FRESH_SNAP_MS,
   snapOf,
-  summaryEvent,
   type Pos,
   type Snap,
   type WhaleEvent,
@@ -80,9 +78,7 @@ export function decideRun(input: RunInput): RunPlan {
       addPct: input.addPct,
       accountUsd: book.accountUsd,
     };
-    let events = detectEvents(book.ticker, prev, book.positions, book.realised, thresholds);
-    const dust = prev ? dustMoves(prev.positions, book.positions, book.accountUsd) : 0;
-    if (!events.length && dust >= 3) events = [summaryEvent(book.ticker, dust)];
+    const events = detectEvents(book.ticker, prev, book.positions, book.realised, thresholds).filter((e) => !e.summary);
     if (events.length > 0) {
       groups.push({ ticker: book.ticker, events, next });
       continue;

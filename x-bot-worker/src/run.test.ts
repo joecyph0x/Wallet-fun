@@ -203,4 +203,25 @@ test("one whale cannot take a third post while another whale still has a move", 
   }));
   assert.equal(plan.post?.ticker, "MACHI");
   assert.equal(/\bbets?\b/i.test(plan.post?.text ?? ""), false);
+  assert.ok(plan.post?.text.includes("$BTC"));
+  assert.ok(plan.post?.text.endsWith("🟢🩷") || plan.post?.text.endsWith("🩷"));
+});
+
+test("a book of only small legs does not get a summary post", () => {
+  const prev = snapOf([
+    pos("A", 1, 10_000),
+    pos("B", 1, 20_000),
+    pos("C", 1, 30_000),
+  ], fresh);
+  const plan = decideRun(input({
+    snaps: { HLP: prev },
+    books: [{
+      ticker: "HLP",
+      positions: [],
+      realised: { A: 5_000_000, B: 5_000_000, C: 5_000_000 },
+      accountUsd: 40_000_000,
+    }],
+  }));
+  assert.equal(plan.post, null);
+  assert.equal((plan.post?.text ?? "").includes("shuffled"), false);
 });
