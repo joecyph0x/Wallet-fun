@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Pos } from "./events.js";
 import { positionsFromClearinghouse } from "./events.js";
-import { DEFAULT_EXTRA_DEXES, MAX_VAULT_CHILDREN, displayCoin, mergeBooks, parseDexes, queriesFor, vaultChildren } from "./sources.js";
-import { safeLabel } from "./templates.js";
+import { DEFAULT_EXTRA_DEXES, MAX_VAULT_CHILDREN, accountValueFromClearinghouse, displayCoin, mergeBooks, parseDexes, queriesFor, vaultChildren } from "./sources.js";
+import { postCoin } from "./templates.js";
 import { WHALES } from "./whales.js";
 
 function pos(coin: string, szi: number, notional: number, upnl = 0, entry = 1): Pos {
@@ -71,10 +71,20 @@ test("mergeBooks returns null when any read failed", () => {
   assert.deepEqual(mergeBooks([[], []]), []);
 });
 
-test("displayCoin drops the dex prefix for posts only", () => {
-  assert.equal(displayCoin("xyz:SILVER"), "SILVER");
+test("displayCoin maps HIP-3 ids to dollar tickers", () => {
+  assert.equal(displayCoin("xyz:TSLA"), "$TSLA");
+  assert.equal(displayCoin("xyz:SILVER"), "$SILVER");
+  assert.equal(displayCoin("xyz:XYZ100"), "$XYZ100");
   assert.equal(displayCoin("ETH"), "ETH");
-  assert.equal(safeLabel(displayCoin("xyz:GOLD")), "GOLD");
+  assert.equal(postCoin("xyz:TSLA"), "$TSLA");
+  assert.equal(postCoin("xyz:@TSLA"), "$TSLA");
+  assert.equal(postCoin("ETH"), "$ETH");
+  assert.equal(postCoin("btc"), "$BTC");
+});
+
+test("account value comes from the clearinghouse margin summary", () => {
+  assert.equal(accountValueFromClearinghouse({ marginSummary: { accountValue: "120000.5" } }), 120000.5);
+  assert.equal(accountValueFromClearinghouse({}), null);
 });
 
 test("HLP is read as a vault parent, others as plain accounts", () => {
