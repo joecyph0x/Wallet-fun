@@ -454,7 +454,7 @@
 
   function feeText(bps) {
     const n = Number(bps);
-    const v = Number.isFinite(n) && n >= 0 ? n : 50;
+    const v = Number.isFinite(n) && n >= 0 ? n : 25;
     const pct = v / 100;
     const s = Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 100) / 100);
     return s + "%";

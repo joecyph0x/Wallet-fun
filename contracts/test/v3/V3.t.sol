@@ -36,8 +36,8 @@ contract V3Test is Test {
     uint256 internal constant SEED = 10_000e6;
 
     HyperCoreStore internal store;
-    MockUSDC internal usdc;
-    WalletRegistryV3 internal reg;
+    MockUSDC public usdc;
+    WalletRegistryV3 public reg;
     WalletMarketV3 internal market;
     MarketBeacon internal beacon;
 
@@ -515,7 +515,15 @@ contract V3Test is Test {
         vm.expectRevert(WalletMarketV3.NotEmergency.selector);
         market.exitAtLastNav();
 
+        // The pause is old enough, but a settle an hour ago still blocks the exit.
+        vm.warp(reg.pauseSince() + Config.EXIT_DELAY - 1 hours);
+        market.settleIfDue(_one());
         vm.warp(reg.pauseSince() + Config.EXIT_DELAY);
+        vm.prank(alice);
+        vm.expectRevert(WalletMarketV3.NotEmergency.selector);
+        market.exitAtLastNav();
+
+        vm.warp(market.lastSettleTs() + Config.EXIT_DELAY);
         uint256 pot = market.tailPot();
         uint256 supply = market.tailSupply();
         uint256 shares = market.sharesOf(alice, WalletMarketV3.Side.Tail);
@@ -750,6 +758,61 @@ contract V3Test is Test {
     function _bookOn(address who, int64 szi, uint64 mark, int64 equity) internal {
         _setLeg(who, 1, szi, mark);
         _setMargin(who, 0, equity, szi == 0 ? 0 : _ntl(szi, mark));
+    }
+
+    function actBuy(uint256 seed, uint256 amt, uint8 sideRaw) external {
+        amt = bound(amt, Config.MIN_ORDER, 2_000e6);
+        vm.prank(_actor(seed));
+        try market.buy(_side(sideRaw), amt, _one()) {} catch {}
+    }
+
+    function actSell(uint256 seed, uint256 shares, uint8 sideRaw) external {
+        address actor = _actor(seed);
+        WalletMarketV3.Side side = _side(sideRaw);
+        uint256 have = market.sharesOf(actor, side);
+        if (have == 0) return;
+        shares = bound(shares, 1, have);
+        vm.prank(actor);
+        try market.sell(side, shares, _one()) {} catch {}
+    }
+
+    function actCancel(uint256 seed) external {
+        vm.prank(_actor(seed));
+        try market.cancel() {} catch {}
+    }
+
+    function actSettle(uint256 warpSeed) external {
+        if (warpSeed % 2 == 0) vm.warp(block.timestamp + Config.EPOCH);
+        try market.settleIfDue(_one()) {} catch {}
+    }
+
+    function actPauseOrExit(uint256 seed) external {
+        if (!reg.buysPaused()) reg.setBuysPaused(true);
+        uint256 when = block.timestamp;
+        uint256 pauseAt = reg.pauseSince() + Config.EXIT_DELAY;
+        uint256 settleAt = market.lastSettleTs() == 0 ? when : market.lastSettleTs() + Config.EXIT_DELAY;
+        if (pauseAt > when) when = pauseAt;
+        if (settleAt > when) when = settleAt;
+        vm.warp(when);
+        vm.prank(_actor(seed));
+        try market.exitAtLastNav() {} catch {}
+    }
+
+    function actOptOut() external {
+        if (reg.optedOut(whale)) return;
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(whalePk, reg.hashOptOut(whale));
+        try reg.optOut(whale, abi.encodePacked(r, s, v)) {} catch {}
+    }
+
+    function _actor(uint256 seed) internal view returns (address) {
+        uint256 i = seed % 3;
+        if (i == 0) return alice;
+        if (i == 1) return bob;
+        return carol;
+    }
+
+    function _side(uint8 sideRaw) internal pure returns (WalletMarketV3.Side) {
+        return sideRaw % 2 == 0 ? WalletMarketV3.Side.Tail : WalletMarketV3.Side.Fade;
     }
 }
 

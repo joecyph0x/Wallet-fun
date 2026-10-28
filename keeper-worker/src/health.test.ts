@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickLatestLog, settleAgeSec } from "./health.js";
+import { pickLatestLog, settleAgeSec, settleStalled } from "./health.js";
 
 test("pickLatestLog keeps the highest block, then the highest log index", () => {
   const picked = pickLatestLog([
@@ -16,4 +16,10 @@ test("pickLatestLog keeps the highest block, then the highest log index", () => 
 test("settle age is null until the market has settled", () => {
   assert.equal(settleAgeSec(0, 1_000), null);
   assert.equal(settleAgeSec(900, 1_000), 100);
+});
+
+test("a market is stalled only after two epochs without a settle", () => {
+  assert.equal(settleStalled(0, 5_000, 600), false);
+  assert.equal(settleStalled(1_000, 2_200, 600), false);
+  assert.equal(settleStalled(1_000, 2_201, 600), true);
 });

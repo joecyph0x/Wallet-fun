@@ -279,11 +279,15 @@ contract WalletMarketV3 {
         if (1 + extraMembers.length > Config.MAX_MEMBERS) revert BadAmount();
         members.push(whale_);
         for (uint256 i; i < extraMembers.length; ++i) {
-            if (extraMembers[i] == address(0) || extraMembers[i] == whale_) revert BadAmount();
+            if (extraMembers[i] == address(0)) revert BadAmount();
+            for (uint256 j; j < members.length; ++j) {
+                if (members[j] == extraMembers[i]) revert BadAmount();
+            }
             members.push(extraMembers[i]);
         }
         bool sawDex0;
         for (uint256 i; i < dexes_.length; ++i) {
+            if (dexEnabled[dexes_[i]]) revert BadAmount();
             dexes.push(dexes_[i]);
             dexEnabled[dexes_[i]] = true;
             if (dexes_[i] == 0) sawDex0 = true;
@@ -304,6 +308,16 @@ contract WalletMarketV3 {
 
     function applyDex(uint32 dex, bool on) external onlyRegistry {
         if (dex == 0 && !on) revert BadAmount();
+        if (on) {
+            bool known;
+            for (uint256 i; i < dexes.length; ++i) {
+                if (dexes[i] == dex) known = true;
+            }
+            if (!known) {
+                if (dexes.length >= Config.MAX_DEXES) revert BadAmount();
+                dexes.push(dex);
+            }
+        }
         dexEnabled[dex] = on;
     }
 
@@ -313,7 +327,10 @@ contract WalletMarketV3 {
     }
 
     function addMember(address member) external onlyRegistry {
-        if (members.length >= Config.MAX_MEMBERS) revert BadAmount();
+        if (members.length >= Config.MAX_MEMBERS || member == address(0)) revert BadAmount();
+        for (uint256 j; j < members.length; ++j) {
+            if (members[j] == member) revert BadAmount();
+        }
         members.push(member);
     }
 
@@ -388,6 +405,8 @@ contract WalletMarketV3 {
         if (!reg.buysPaused()) revert NotEmergency();
         uint256 since = reg.pauseSince();
         if (since == 0 || block.timestamp < since + Config.EXIT_DELAY) revert NotEmergency();
+        // A fresh sample means the book is not stuck. Exit is only for a market that has not settled.
+        if (lastSettleTs != 0 && block.timestamp < lastSettleTs + Config.EXIT_DELAY) revert NotEmergency();
         _materialize(msg.sender);
         _refundOpen(msg.sender);
         _exitSide(Side.Tail);
@@ -423,9 +442,20 @@ contract WalletMarketV3 {
 
     function _settle(Asset[] calldata assets) internal {
         if (assets.length > Config.MAX_ASSETS) revert TooManyAssets();
-        Book memory book = _readBook(assets);
+        Book memory book;
+        if (status != Status.RedeemOnly) {
+            book = _readBook(assets);
+            _commitSnaps();
+        } else {
+            // Opt-out skips the book so a crowded account cannot freeze sells.
+            // Keep the last sample in the event instead of reporting equity 0.
+            book.equity = lastEquity;
+            book.ntlPos = lastNtlPos;
+            book.pnl = lastPnl;
+            book.weightedNtl = lastWeightedNtl;
+            book.l1Block = lastL1Block;
+        }
         (int256 applied, int256 delta) = _applyReturn(book);
-        _commitSnaps();
 
         uint64 closing = epoch;
         Fill memory fill = _closeBucket();
@@ -753,11 +783,13 @@ contract WalletMarketV3 {
         if (shares == 0) return;
         uint256 supply = side == Side.Tail ? tailSupply : fadeSupply;
         uint256 pot = side == Side.Tail ? tailPot : fadePot;
+        // Shares escrowed by other users' open sells still own part of the pot.
+        uint256 entitled = supply + (side == Side.Tail ? openBucket.sellTail : openBucket.sellFade);
         if (supply == 0 || pot == 0) {
             _take(msg.sender, side, shares);
             return;
         }
-        uint256 pay = shares * pot / supply;
+        uint256 pay = shares * pot / entitled;
         _take(msg.sender, side, shares);
         if (side == Side.Tail) {
             tailSupply -= shares;
@@ -858,6 +890,7 @@ contract WalletMarketV3 {
             address member = members[i];
             equity += int256(uint256(CoreReader.spotBalance(member, Config.USDC_SPOT).total) / Config.SPOT_TO_USD);
             for (uint256 j; j < dc; ++j) {
+                if (!dexEnabled[dexes[j]]) continue;
                 CoreReader.AccountMarginSummary memory a = CoreReader.accountMarginSummary(dexes[j], member);
                 equity += int256(a.accountValue);
                 ntl += uint256(a.ntlPos);
@@ -888,6 +921,7 @@ contract WalletMarketV3 {
         }
         if (szi != prev.szi) book.changed = true;
         if (szi != 0) {
+            if (_staged.length >= Config.MAX_ASSETS) revert TooManyAssets();
             _staged.push(Snap({member: member, perp: perp, szi: szi, mark: mark, live: true}));
         }
     }

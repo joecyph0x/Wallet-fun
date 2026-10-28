@@ -297,7 +297,7 @@ contract WalletRegistryV3 {
         emit Scheduled(bytes4(data), pendingEta);
     }
 
-    function cancelPending() external onlyOwner {
+    function cancelPending() external onlyGuardian {
         delete pendingData;
         pendingEta = 0;
         emit PendingCleared();
@@ -341,11 +341,11 @@ contract WalletRegistryV3 {
             maxPotPerSide = next;
         } else if (sel == OP_BEACON) {
             address next = abi.decode(data[4:], (address));
-            if (next == address(0)) revert BadAddress();
+            if (next.code.length == 0) revert BadAddress();
             beacon.upgrade(next);
         } else if (sel == OP_REGISTRY) {
             address next = abi.decode(data[4:], (address));
-            if (next == address(0)) revert BadAddress();
+            if (next.code.length == 0) revert BadAddress();
             assembly {
                 sstore(REGISTRY_SLOT, next)
             }
