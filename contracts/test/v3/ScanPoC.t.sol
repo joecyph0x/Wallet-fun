@@ -112,6 +112,7 @@ contract ScanPoC is V3Test {
         _unlock();
         vm.expectRevert(WalletRegistryV3.BadAddress.selector);
         reg.execute();
+        reg.cancelPending();
 
         reg.schedule(abi.encodeWithSelector(reg.OP_REGISTRY(), address(0x1234)));
         _unlock();

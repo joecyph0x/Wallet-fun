@@ -7,7 +7,9 @@ import {WalletRegistryV3} from "../WalletRegistryV3.sol";
 /// @notice HyperEVM TESTNET ONLY. WalletRegistryV3 plus one owner call that lists a
 ///         wallet without the 24h timelock, so a testnet soak can list twelve markets
 ///         in one sitting instead of twelve days. Every other path, including the
-///         timelocked OP_LIST, is unchanged. No new storage, so the proxy layout matches.
+///         timelocked OP_LIST, is unchanged, including owner replacement, the
+///         single pending change, and the guardian's inability to cancel its own
+///         replacement. No new storage, so the proxy layout matches.
 ///         Not for mainnet: `testnetList` reverts on any chain other than 998.
 contract WalletRegistryV3Testnet is WalletRegistryV3 {
     error TestnetOnly();
